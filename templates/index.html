@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="/static/logo.png">
+  
+  <title>Media Downloader Pro - TikTok, YouTube & Pinterest</title>
+
+  <style>
+    :root {
+      --primary: #ff0050;
+      --secondary: #00f2fe;
+      --bg-dark: #090d16;
+      --card-bg: rgba(22, 27, 46, 0.75);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    }
+
+    body {
+      background: var(--bg-dark);
+      color: #fff;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      position: relative;
+      overflow-x: hidden;
+      padding: 15px;
+    }
+
+    .bg-glow {
+      position: absolute;
+      width: 450px;
+      height: 450px;
+      border-radius: 50%;
+      filter: blur(140px);
+      z-index: 0;
+      animation: float 8s infinite alternate ease-in-out;
+      pointer-events: none;
+    }
+    .glow-1 { background: var(--primary); top: -50px; left: 10%; opacity: 0.6; }
+    .glow-2 { background: var(--secondary); top: 300px; right: 10%; opacity: 0.5; animation-delay: -4s; }
+
+    @keyframes float {
+      0% { transform: translate(0, 0) scale(1); }
+      100% { transform: translate(40px, 60px) scale(1.1); }
+    }
+
+    header {
+      width: 100%;
+      max-width: 1100px;
+      padding: 20px 30px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 10;
+    }
+
+    .logo {
+      font-size: 1.4rem;
+      font-weight: 800;
+      background: linear-gradient(45deg, var(--primary), var(--secondary));
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    main {
+      width: 100%;
+      max-width: 1000px;
+      padding: 20px;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 30px;
+    }
+
+    /* Selector de Plataforma */
+    .platform-selector {
+      display: flex;
+      gap: 10px;
+      background: rgba(255, 255, 255, 0.05);
+      padding: 6px;
+      border-radius: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .platform-btn {
+      padding: 10px 20px;
+      border-radius: 12px;
+      border: none;
+      background: transparent;
+      color: #94a3b8;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .platform-btn.active-tiktok {
+      background: #ff0050;
+      color: white;
+      box-shadow: 0 4px 15px rgba(255, 0, 80, 0.4);
+    }
+
+    .platform-btn.active-yt {
+      background: #ff0000;
+      color: white;
+      box-shadow: 0 4px 15px rgba(255, 0, 0, 0.4);
+    }
+
+    .platform-btn.active-pinterest {
+      background: #e60023;
+      color: white;
+      box-shadow: 0 4px 15px rgba(230, 0, 35, 0.4);
+    }
+
+    .downloader-card {
+      width: 100%;
+      max-width: 580px;
+      background: var(--card-bg);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 24px;
+      padding: 40px 30px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+      text-align: center;
+    }
+
+    h1 {
+      font-size: 2.2rem;
+      font-weight: 800;
+      margin-bottom: 10px;
+      transition: all 0.3s ease;
+    }
+
+    p.subtitle {
+      color: #94a3b8;
+      font-size: 0.95rem;
+      margin-bottom: 25px;
+    }
+
+    .input-box { margin-bottom: 20px; }
+
+    input[type="text"] {
+      width: 100%;
+      padding: 16px 20px;
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      background: rgba(10, 15, 30, 0.7);
+      color: #fff;
+      font-size: 16px; /* Evita zoom molesto en iPhone */
+      outline: none;
+      transition: all 0.3s ease;
+    }
+
+    input[type="text"]:focus {
+      border-color: var(--secondary);
+      box-shadow: 0 0 15px rgba(0, 242, 254, 0.3);
+    }
+
+    .options-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .option-card {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 12px;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      font-weight: 600;
+      font-size: 0.9rem;
+    }
+
+    .option-card.active {
+      background: rgba(0, 242, 254, 0.15);
+      border-color: var(--secondary);
+      color: var(--secondary);
+    }
+
+    .btn-download {
+      width: 100%;
+      padding: 16px;
+      border: none;
+      border-radius: 14px;
+      background: linear-gradient(45deg, var(--primary), #e6004c);
+      color: #fff;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      box-shadow: 0 8px 20px rgba(255, 0, 80, 0.35);
+    }
+
+    .btn-download:hover { transform: translateY(-2px); }
+
+    .spinner {
+      display: none;
+      width: 26px;
+      height: 26px;
+      border: 3px solid rgba(255, 255, 255, 0.3);
+      border-radius: 50%;
+      border-top-color: #fff;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .status-msg {
+      margin-top: 15px;
+      font-size: 0.9rem;
+      min-height: 20px;
+    }
+
+    .result-box {
+      display: none;
+      margin-top: 20px;
+      animation: fadeIn 0.4s ease;
+    }
+
+    #mediaContainer img,
+    #mediaContainer video {
+      width: 100% !important;
+      height: auto !important;
+      max-height: 65vh;
+      object-fit: contain;
+      border-radius: 12px;
+      margin-bottom: 15px;
+      display: block;
+      background: #000;
+    }
+
+    #mediaContainer audio {
+      width: 100% !important;
+      margin-bottom: 15px;
+    }
+
+    .btn-save {
+      display: inline-block;
+      width: 100%;
+      padding: 14px;
+      background: #10b981;
+      color: white;
+      text-decoration: none;
+      border-radius: 12px;
+      font-weight: bold;
+      box-shadow: 0 6px 18px rgba(16, 185, 129, 0.3);
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (max-width: 480px) {
+      .downloader-card { padding: 25px 15px; }
+      h1 { font-size: 1.6rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="bg-glow glow-1"></div>
+  <div class="bg-glow glow-2"></div>
+
+  <header>
+    <div class="logo">⚡ MediaDL Pro</div>
+  </header>
+
+  <main>
+    <!-- Selector de Plataformas -->
+    <div class="platform-selector">
+      <button class="platform-btn active-tiktok" id="btnPlatTikTok" onclick="cambiarPlataforma('tiktok')">
+        🎵 TikTok
+      </button>
+      <button class="platform-btn" id="btnPlatYT" onclick="cambiarPlataforma('youtube')">
+        ▶️ YouTube
+      </button>
+      <button class="platform-btn" id="btnPlatPin" onclick="cambiarPlataforma('pinterest')">
+        📌 Pinterest
+      </button>
+    </div>
+
+    <div class="downloader-card">
+      <h1 id="titleText">TikTok Downloader</h1>
+      <p class="subtitle" id="subText">Descarga videos en HD o extrae el audio en MP3 gratis</p>
+
+      <div class="input-box">
+        <input type="text" id="urlInput" placeholder="Pega el enlace de TikTok aquí..." autocomplete="off">
+      </div>
+
+      <div class="options-grid">
+        <div class="option-card active" id="optMp4" onclick="seleccionarFormato('mp4')">
+          🎬 Video (MP4)
+        </div>
+        <div class="option-card" id="optMp3" onclick="seleccionarFormato('mp3')">
+          🎵 Audio (MP3)
+        </div>
+      </div>
+
+      <button class="btn-download" id="btnDescargar" onclick="procesarDescarga()">
+        <span id="btnText">Descargar Ahora</span>
+        <div class="spinner" id="btnSpinner"></div>
+      </button>
+
+      <div class="status-msg" id="statusMsg"></div>
+
+      <div class="result-box" id="resultBox">
+        <div id="mediaContainer"></div>
+        <a href="#" id="downloadLink" class="btn-save" download>⬇️ Guardar Archivo</a>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    let plataformaActual = 'tiktok';
+    let formatoSeleccionado = 'mp4';
+
+    // FUNCIÓN UNIFICADA: Cambia la URL y actualiza los estilos
+    function cambiarPlataforma(plat, actualizarHistorial = true) {
+      plataformaActual = plat;
+
+      // 1. Cambia la URL del navegador sin recargar
+      if (actualizarHistorial) {
+        const nuevaUrl = '/' + plat.toLowerCase();
+        history.pushState({ plataforma: plat }, '', nuevaUrl);
+      }
+
+      // 2. Cambia estilos de la interfaz
+      const btnTikTok = document.getElementById('btnPlatTikTok');
+      const btnYT = document.getElementById('btnPlatYT');
+      const btnPin = document.getElementById('btnPlatPin');
+      const titleText = document.getElementById('titleText');
+      const urlInput = document.getElementById('urlInput');
+
+      btnTikTok.className = 'platform-btn';
+      btnYT.className = 'platform-btn';
+      btnPin.className = 'platform-btn';
+
+      if (plat === 'tiktok') {
+        btnTikTok.className = 'platform-btn active-tiktok';
+        titleText.innerText = 'TikTok Downloader';
+        titleText.style.background = 'linear-gradient(45deg, #ff0050, #00f2fe)';
+        titleText.style.webkitBackgroundClip = 'text';
+        urlInput.placeholder = 'Pega el enlace de TikTok aquí...';
+      } else if (plat === 'youtube') {
+        btnYT.className = 'platform-btn active-yt';
+        titleText.innerText = 'YouTube Downloader';
+        titleText.style.background = 'linear-gradient(45deg, #ff0000, #ff7300)';
+        titleText.style.webkitBackgroundClip = 'text';
+        urlInput.placeholder = 'Pega el enlace de YouTube aquí...';
+      } else if (plat === 'pinterest') {
+        btnPin.className = 'platform-btn active-pinterest';
+        titleText.innerText = 'Pinterest Downloader';
+        titleText.style.background = 'linear-gradient(45deg, #e60023, #ff4d4d)';
+        titleText.style.webkitBackgroundClip = 'text';
+        urlInput.placeholder = 'Pega el enlace de Pinterest aquí (pin/video)...';
+      }
+    }
+
+    // Detectar botones Atrás/Adelante del navegador
+    window.addEventListener('popstate', () => {
+      const ruta = window.location.pathname.replace('/', '') || 'tiktok';
+      cambiarPlataforma(ruta, false);
+    });
+
+    // Detectar la ruta cuando se carga la página inicialmente
+    document.addEventListener('DOMContentLoaded', () => {
+      const rutaInicial = window.location.pathname.replace('/', '');
+      if (['tiktok', 'youtube', 'pinterest'].includes(rutaInicial)) {
+        cambiarPlataforma(rutaInicial, false);
+      }
+    });
+
+    function seleccionarFormato(fmt) {
+      formatoSeleccionado = fmt;
+      document.getElementById('optMp4').classList.toggle('active', fmt === 'mp4');
+      document.getElementById('optMp3').classList.toggle('active', fmt === 'mp3');
+    }
+
+    async function procesarDescarga() {
+      const url = document.getElementById('urlInput').value.trim();
+      const statusMsg = document.getElementById('statusMsg');
+      const btnText = document.getElementById('btnText');
+      const btnSpinner = document.getElementById('btnSpinner');
+      const resultBox = document.getElementById('resultBox');
+      const mediaContainer = document.getElementById('mediaContainer');
+
+      if (!url) {
+        statusMsg.style.color = '#ef4444';
+        statusMsg.innerText = "⚠️ Pega un enlace primero.";
+        return;
+      }
+
+      statusMsg.style.color = '#94a3b8';
+      statusMsg.innerText = "Procesando la descarga...";
+      btnText.style.display = 'none';
+      btnSpinner.style.display = 'block';
+      resultBox.style.display = 'none';
+
+      try {
+        const response = await fetch('/descargar', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: url, formato: formatoSeleccionado })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          statusMsg.style.color = '#10b981';
+          statusMsg.innerText = "¡Procesado con éxito!";
+
+          const downloadLink = document.getElementById('downloadLink');
+          downloadLink.href = data.download_url;
+
+          const ext = data.filename.split('.').pop().toLowerCase();
+
+          if (['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext)) {
+            downloadLink.innerText = '⬇️ Guardar Imagen HD';
+            mediaContainer.innerHTML = `<img src="${data.download_url}">`;
+          } 
+          else if (data.tipo === 'mp3' || ext === 'mp3') {
+            downloadLink.innerText = '⬇️ Guardar Audio MP3';
+            mediaContainer.innerHTML = `<audio controls src="${data.download_url}"></audio>`;
+          } 
+          else {
+            downloadLink.innerText = '⬇️ Guardar Video MP4';
+            mediaContainer.innerHTML = `<video controls autoplay src="${data.download_url}"></video>`;
+          }
+
+          resultBox.style.display = 'block';
+        } else {
+          statusMsg.style.color = '#ef4444';
+          statusMsg.innerText = "❌ " + data.error;
+        }
+      } catch (err) {
+        statusMsg.style.color = '#ef4444';
+        statusMsg.innerText = "❌ Error de conexión con el servidor.";
+      } finally {
+        btnText.style.display = 'block';
+        btnSpinner.style.display = 'none';
+      }
+    }
+  </script>
+</body>
+</html>
