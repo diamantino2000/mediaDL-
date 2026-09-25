@@ -210,7 +210,10 @@ def obtener_archivo(filename):
     if os.path.exists(filepath):
         return send_file(filepath, as_attachment=True)
     return jsonify({"error": "El archivo solicitado no existe."}), 404
-
+    
+@app.route('/sw.js')
+def serve_sw():
+    return send_from_directory('.', 'sw.js', mimetype='application/javascript')
 
 if __name__ == '__main__':
     print("-------------------------------------------------------")
