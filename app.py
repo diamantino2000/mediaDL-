@@ -5,7 +5,7 @@ import json
 import subprocess
 import requests
 from bs4 import BeautifulSoup
-from flask import Flask, request, jsonify, send_file, send_from_directory
+from flask import Flask, request, jsonify, send_file
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DOWNLOAD_FOLDER = os.path.join(BASE_DIR, 'downloads')
@@ -213,7 +213,10 @@ def obtener_archivo(filename):
     
 @app.route('/sw.js')
 def serve_sw():
-    return send_from_directory(BASE_DIR, 'sw.js', mimetype='application/javascript')
+    sw_path = os.path.join(BASE_DIR, 'templates', 'sw.js')
+    if not os.path.exists(sw_path):
+        sw_path = os.path.join(BASE_DIR, 'sw.js')
+    return send_file(sw_path, mimetype='application/javascript')
 
 if __name__ == '__main__':
     print("-------------------------------------------------------")
