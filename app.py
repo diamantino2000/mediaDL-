@@ -5,7 +5,7 @@ import json
 import subprocess
 import requests
 from bs4 import BeautifulSoup
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, send_from_directory
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DOWNLOAD_FOLDER = os.path.join(BASE_DIR, 'downloads')
@@ -132,14 +132,15 @@ def descargar():
     except Exception:
         ffmpeg_path = None
 
+    # Opciones optimizadas contra bloqueos de YouTube en Render
     opciones_anti_bot = [
-    '--user-agent',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36',
-    '--no-check-certificates',
-    '--no-playlist',
-    '--retries', '3',
-    '--fragment-retries', '3'
-]
+        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        '--extractor-args', 'youtube:player_client=ios,web,mweb',
+        '--no-check-certificates',
+        '--no-playlist',
+        '--retries', '5',
+        '--fragment-retries', '5'
+    ]
 
     yt_dlp_exito = False
     filename = ""
@@ -212,13 +213,15 @@ def obtener_archivo(filename):
     if os.path.exists(filepath):
         return send_file(filepath, as_attachment=True)
     return jsonify({"error": "El archivo solicitado no existe."}), 404
-    
+
+
 @app.route('/sw.js')
 def serve_sw():
     sw_path = os.path.join(BASE_DIR, 'templates', 'sw.js')
     if not os.path.exists(sw_path):
         sw_path = os.path.join(BASE_DIR, 'sw.js')
     return send_file(sw_path, mimetype='application/javascript')
+
 
 if __name__ == '__main__':
     print("-------------------------------------------------------")
