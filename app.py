@@ -133,13 +133,15 @@ def descargar():
         ffmpeg_path = None
 
     # Opciones optimizadas contra bloqueos de YouTube en Render
+   # Opciones optimizadas contra bloqueos severos de YouTube en servidores en la nube
     opciones_anti_bot = [
-        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        '--extractor-args', 'youtube:player_client=ios,web,mweb',
+        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+        '--extractor-args', 'youtube:player_client=android_vr,ios,mweb',
         '--no-check-certificates',
         '--no-playlist',
-        '--retries', '5',
-        '--fragment-retries', '5'
+        '--retries', '10',
+        '--fragment-retries', '10',
+        '--concurrent-fragments', '5'
     ]
 
     yt_dlp_exito = False
