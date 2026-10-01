@@ -133,11 +133,13 @@ def descargar():
         ffmpeg_path = None
 
     opciones_anti_bot = [
-        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        '--extractor-args', 'youtube:player_client=android,web',
-        '--no-check-certificates',
-        '--no-playlist'
-    ]
+    '--user-agent',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36',
+    '--no-check-certificates',
+    '--no-playlist',
+    '--retries', '3',
+    '--fragment-retries', '3'
+]
 
     yt_dlp_exito = False
     filename = ""
