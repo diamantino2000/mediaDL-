@@ -9,7 +9,8 @@
   <link rel="icon" type="image/png" href="/static/logo.png">
   
   <title>Media Downloader Pro - TikTok, YouTube & Pinterest</title>
-<script id="aclib" type="text/javascript" src="https://acscdn.com/script/aclib.js"></script>
+  <script id="aclib" type="text/javascript" src="https://acscdn.com/script/aclib.js"></script>
+  
   <style>
     :root {
       --primary: #ff0050;
@@ -164,7 +165,7 @@
       border: 1px solid rgba(255, 255, 255, 0.15);
       background: rgba(10, 15, 30, 0.7);
       color: #fff;
-      font-size: 16px; /* Evita zoom molesto en iPhone */
+      font-size: 16px;
       outline: none;
       transition: all 0.3s ease;
     }
@@ -279,7 +280,8 @@
     }
   </style>
 </head>
-  <!-- Registro de Service Worker para Monetag -->
+
+<!-- Registro de Service Worker para Monetag -->
 <script>
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js')
@@ -287,6 +289,7 @@
       .catch(err => console.error('Error al registrar Service Worker:', err));
   }
 </script>
+
 <body>
 
   <div class="bg-glow glow-1"></div>
@@ -336,10 +339,24 @@
 
       <div class="result-box" id="resultBox">
         <div id="mediaContainer"></div>
-        <a href="#" id="downloadLink" class="btn-save" download>⬇️ Guardar Archivo</a>
+        <a href="#" id="downloadLink" class="btn-save" download target="_blank">⬇️ Guardar Archivo</a>
       </div>
     </div>
   </main>
+
+  <!-- Adsterra Banner -->
+  <div style="margin: 20px auto; text-align: center; min-height: 60px;">
+    <script type="text/javascript">
+      atOptions = {
+        'key' : '6138cb7aea6b2fd48b95c38429c1eb89',
+        'format' : 'iframe',
+        'height' : 60,
+        'width' : 468,
+        'params' : {}
+      };
+    </script>
+    <script type="text/javascript" src="https://www.highrevenueformat.com/6138cb7aea6b2fd48b95c38429c1eb89/invoke.js"></script>
+  </div>
 
   <script>
     let plataformaActual = 'tiktok';
@@ -349,13 +366,11 @@
     function cambiarPlataforma(plat, actualizarHistorial = true) {
       plataformaActual = plat;
 
-      // 1. Cambia la URL del navegador sin recargar
       if (actualizarHistorial) {
         const nuevaUrl = '/' + plat.toLowerCase();
         history.pushState({ plataforma: plat }, '', nuevaUrl);
       }
 
-      // 2. Cambia estilos de la interfaz
       const btnTikTok = document.getElementById('btnPlatTikTok');
       const btnYT = document.getElementById('btnPlatYT');
       const btnPin = document.getElementById('btnPlatPin');
@@ -428,10 +443,15 @@
       resultBox.style.display = 'none';
 
       try {
+        // CORRECCIÓN CLAVE: Ahora también enviamos la 'plataforma' en la petición JSON
         const response = await fetch('/descargar', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: url, formato: formatoSeleccionado })
+          body: JSON.stringify({ 
+            url: url, 
+            formato: formatoSeleccionado,
+            plataforma: plataformaActual
+          })
         });
 
         const data = await response.json();
@@ -443,13 +463,15 @@
           const downloadLink = document.getElementById('downloadLink');
           downloadLink.href = data.download_url;
 
-          const ext = data.filename.split('.').pop().toLowerCase();
+          // Obtener la extensión del archivo retornado
+          const filename = data.filename || '';
+          const ext = filename.split('.').pop().toLowerCase();
 
           if (['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext)) {
             downloadLink.innerText = '⬇️ Guardar Imagen HD';
             mediaContainer.innerHTML = `<img src="${data.download_url}">`;
           } 
-          else if (data.tipo === 'mp3' || ext === 'mp3') {
+          else if (data.tipo === 'mp3' || formatoSeleccionado === 'mp3' || ext === 'mp3') {
             downloadLink.innerText = '⬇️ Guardar Audio MP3';
             mediaContainer.innerHTML = `<audio controls src="${data.download_url}"></audio>`;
           } 
@@ -461,7 +483,7 @@
           resultBox.style.display = 'block';
         } else {
           statusMsg.style.color = '#ef4444';
-          statusMsg.innerText = "❌ " + data.error;
+          statusMsg.innerText = "❌ " + (data.error || "Ocurrió un error al procesar la descarga.");
         }
       } catch (err) {
         statusMsg.style.color = '#ef4444';
@@ -472,20 +494,5 @@
       }
     }
   </script>
-  </div> <!-- Cierre de la tarjeta principal -->
-
-<!-- Adsterra Banner -->
-<div style="margin: 20px auto; text-align: center; min-height: 60px;">
-    <script type="text/javascript">
-        atOptions = {
-            'key' : '6138cb7aea6b2fd48b95c38429c1eb89',
-            'format' : 'iframe',
-            'height' : 60,
-            'width' : 468,
-            'params' : {}
-        };
-    </script>
-    <script type="text/javascript" src="https://www.highrevenueformat.com/6138cb7aea6b2fd48b95c38429c1eb89/invoke.js"></script>
-</div>
 </body>
 </html>
