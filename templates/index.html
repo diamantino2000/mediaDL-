@@ -4,15 +4,12 @@
   <meta name="robots" content="index, follow">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  
-  <!-- EVITA BLOQUEOS DE CORS Y REFERRER AL REPRODUCIR CDN DE YOUTUBE / TIKTOK -->
   <meta name="referrer" content="no-referrer">
   <meta name="google-site-verification" content="MI_Hq14iBWIEfl1lyAjPv81ga14D-JDykYDLOLaC3gY" />
   
   <link rel="icon" type="image/png" href="/static/logo.png">
-  <title>Media Downloader Pro - TikTok, YouTube & Pinterest</title>
+  <title>Media Downloader Pro - TikTok & Pinterest</title>
 
-  <!-- Script publicitario cargado asíncronamente para no bloquear la app -->
   <script id="aclib" type="text/javascript" src="https://acscdn.com/script/aclib.js" async></script>
   
   <style>
@@ -119,12 +116,6 @@
       background: #ff0050;
       color: white;
       box-shadow: 0 4px 15px rgba(255, 0, 80, 0.4);
-    }
-
-    .platform-btn.active-yt {
-      background: #ff0000;
-      color: white;
-      box-shadow: 0 4px 15px rgba(255, 0, 0, 0.4);
     }
 
     .platform-btn.active-pinterest {
@@ -286,9 +277,7 @@
 
 <script>
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js')
-      .then(reg => console.log('SW registrado:', reg))
-      .catch(err => console.error('Error SW:', err));
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
 </script>
 
@@ -303,13 +292,10 @@
 
   <main>
     <div class="platform-selector">
-      <button class="platform-btn active-tiktok" id="btnPlatTikTok" onclick="cambiarPlataforma('tiktok')">
+      <button class="platform-btn active-tiktok" id="btnPlatTikTok" onclick="irAPlataforma('tiktok')">
         🎵 TikTok
       </button>
-      <button class="platform-btn" id="btnPlatYT" onclick="cambiarPlataforma('youtube')">
-        ▶️ YouTube
-      </button>
-      <button class="platform-btn" id="btnPlatPin" onclick="cambiarPlataforma('pinterest')">
+      <button class="platform-btn" id="btnPlatPin" onclick="irAPlataforma('pinterest')">
         📌 Pinterest
       </button>
     </div>
@@ -362,54 +348,44 @@
     let plataformaActual = 'tiktok';
     let formatoSeleccionado = 'mp4';
 
-    function cambiarPlataforma(plat, actualizarHistorial = true) {
-      plataformaActual = plat;
-
-      if (actualizarHistorial) {
-        const nuevaUrl = '/' + plat.toLowerCase();
-        history.pushState({ plataforma: plat }, '', nuevaUrl);
+    // FUNCIÓN QUE RECARGA LA PÁGINA NATIVAMENTE AL CAMBIAR DE PLATAFORMA
+    function irAPlataforma(plat) {
+      if (window.location.pathname.replace('/', '') !== plat) {
+        window.location.href = '/' + plat;
       }
+    }
 
+    function configurarInterfaz(plat) {
+      plataformaActual = plat;
       const btnTikTok = document.getElementById('btnPlatTikTok');
-      const btnYT = document.getElementById('btnPlatYT');
       const btnPin = document.getElementById('btnPlatPin');
       const titleText = document.getElementById('titleText');
       const urlInput = document.getElementById('urlInput');
 
       btnTikTok.className = 'platform-btn';
-      btnYT.className = 'platform-btn';
       btnPin.className = 'platform-btn';
 
-      if (plat === 'tiktok') {
-        btnTikTok.className = 'platform-btn active-tiktok';
-        titleText.innerText = 'TikTok Downloader';
-        titleText.style.background = 'linear-gradient(45deg, #ff0050, #00f2fe)';
-        titleText.style.webkitBackgroundClip = 'text';
-        urlInput.placeholder = 'Pega el enlace de TikTok aquí...';
-      } else if (plat === 'youtube') {
-        btnYT.className = 'platform-btn active-yt';
-        titleText.innerText = 'YouTube Downloader';
-        titleText.style.background = 'linear-gradient(45deg, #ff0000, #ff7300)';
-        titleText.style.webkitBackgroundClip = 'text';
-        urlInput.placeholder = 'Pega el enlace de YouTube aquí...';
-      } else if (plat === 'pinterest') {
+      if (plat === 'pinterest') {
         btnPin.className = 'platform-btn active-pinterest';
         titleText.innerText = 'Pinterest Downloader';
         titleText.style.background = 'linear-gradient(45deg, #e60023, #ff4d4d)';
         titleText.style.webkitBackgroundClip = 'text';
         urlInput.placeholder = 'Pega el enlace de Pinterest aquí...';
+      } else {
+        btnTikTok.className = 'platform-btn active-tiktok';
+        titleText.innerText = 'TikTok Downloader';
+        titleText.style.background = 'linear-gradient(45deg, #ff0050, #00f2fe)';
+        titleText.style.webkitBackgroundClip = 'text';
+        urlInput.placeholder = 'Pega el enlace de TikTok aquí...';
       }
     }
 
-    window.addEventListener('popstate', () => {
-      const ruta = window.location.pathname.replace('/', '') || 'tiktok';
-      cambiarPlataforma(ruta, false);
-    });
-
     document.addEventListener('DOMContentLoaded', () => {
-      const rutaInicial = window.location.pathname.replace('/', '');
-      if (['tiktok', 'youtube', 'pinterest'].includes(rutaInicial)) {
-        cambiarPlataforma(rutaInicial, false);
+      const rutaActual = window.location.pathname.replace('/', '').toLowerCase();
+      if (rutaActual === 'pinterest') {
+        configurarInterfaz('pinterest');
+      } else {
+        configurarInterfaz('tiktok');
       }
     });
 
@@ -461,7 +437,6 @@
 
           const ext = (data.tipo || '').toLowerCase();
 
-          // Uso explícito de referrerpolicy="no-referrer" en cada tag inyectado
           if (['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext)) {
             downloadLink.innerText = '⬇️ Guardar Imagen HD';
             mediaContainer.innerHTML = `<img src="${data.download_url}" referrerpolicy="no-referrer">`;
