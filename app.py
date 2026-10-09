@@ -3,9 +3,12 @@ import re
 import requests
 from bs4 import BeautifulSoup
 from flask import Flask, request, jsonify, send_file
+from flask_cors import CORS
+import yt_dlp
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__)
+CORS(app)  # Evita problemas de CORS
 
 # --- RUTAS DE NAVEGACIÓN ---
 @app.route('/')
@@ -42,7 +45,7 @@ def resolver_url_final(url):
 # --- TIKTOK ---
 def extraer_tiktok(url, formato):
     try:
-        res = requests.get(f"https://www.tikwm.com/api/?url={url}", timeout=10).json()
+        res = requests.get(f"https://www.tikwm.com/api/?url={url}", timeout=12).json()
         if res.get('code') == 0 and 'data' in res:
             data = res['data']
             if formato == 'mp3' and data.get('music'):
@@ -81,91 +84,38 @@ def extraer_pinterest(url):
         pass
     return False, None, None
 
-# --- YOUTUBE (MEJORADO Y MÁS ESTABLE) ---
+# --- YOUTUBE CON yt-dlp (MÁS ESTABLE) ---
 def extraer_youtube(url, formato):
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
+    try:
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'skip_download': True,
+            'format': 'bestaudio/best' if formato == 'mp3' else 'best[ext=mp4]/best',
+        }
 
-    # 1. Instancias de Cobalt actualizadas (ordenadas por fiabilidad)
-    instancias = [
-        "https://api.cobalt.tools",
-        "https://cobalt-api.kwiatekmiki.com",
-        "https://co.wuk.sh",
-        "https://cobalt.api.timelessnesses.me",
-        "https://api.cobalt.best",
-    ]
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
 
-    payload = {
-        "url": url,
-        "downloadMode": "audio" if formato == "mp3" else "auto",
-        "audioFormat": "mp3" if formato == "mp3" else "best",
-        "filenameStyle": "basic",
-        "disableMetadata": True
-    }
+            if formato == 'mp3':
+                # Buscar la mejor pista de audio
+                for f in info.get('formats', []):
+                    if f.get('acodec') != 'none' and f.get('vcodec') == 'none' and f.get('url'):
+                        return True, f['url'], 'mp3'
+                # Fallback
+                if info.get('url'):
+                    return True, info['url'], 'mp3'
+            else:
+                # Preferir mp4 con video + audio
+                for f in reversed(info.get('formats', [])):
+                    if f.get('ext') == 'mp4' and f.get('acodec') != 'none' and f.get('vcodec') != 'none' and f.get('url'):
+                        return True, f['url'], 'mp4'
+                # Cualquier formato decente
+                if info.get('url'):
+                    return True, info['url'], 'mp4'
 
-    for base in instancias:
-        try:
-            r = requests.post(
-                f"{base}/",
-                json=payload,
-                headers=headers,
-                timeout=12
-            )
-            if r.status_code == 200:
-                data = r.json()
-                # Diferentes formatos de respuesta que usa Cobalt
-                media_url = (
-                    data.get("url")
-                    or data.get("stream")
-                    or (data.get("picker") and data["picker"][0].get("url"))
-                )
-                if media_url:
-                    return True, media_url, ("mp3" if formato == "mp3" else "mp4")
-        except Exception:
-            continue
-
-    # 2. Fallback con Invidious (más nodos y mejor selección de formato)
-    v_match = re.search(r"(?:v=|youtu\.be/|shorts/|embed/|\/)([0-9A-Za-z_-]{11})", url)
-    if v_match:
-        v_id = v_match.group(1)
-
-        nodes = [
-            "https://inv.tux.pizza",
-            "https://invidious.nerdvpn.de",
-            "https://yewtu.be",
-            "https://invidious.fdn.fr",
-            "https://vid.puffyan.us",
-            "https://invidious.privacyredirect.com",
-        ]
-
-        for node in nodes:
-            try:
-                inv = requests.get(f"{node}/api/v1/videos/{v_id}", timeout=10).json()
-
-                if formato == "mp3":
-                    # Buscar el mejor audio disponible
-                    for f in inv.get("adaptiveFormats", []):
-                        if "audio" in f.get("type", "") and f.get("url"):
-                            return True, f["url"], "mp3"
-                else:
-                    # Preferir formatStreams (progresivo) si existe
-                    streams = inv.get("formatStreams", [])
-                    if streams:
-                        # Tomar el de mejor calidad
-                        best = sorted(streams, key=lambda x: int(x.get("qualityLabel", "0").replace("p", "") or 0), reverse=True)
-                        if best and best[0].get("url"):
-                            return True, best[0]["url"], "mp4"
-
-                    # Si no hay formatStreams, usar adaptive video + audio (solo video)
-                    for f in inv.get("adaptiveFormats", []):
-                        if "video" in f.get("type", "") and f.get("url"):
-                            return True, f["url"], "mp4"
-            except Exception:
-                continue
-
+    except Exception as e:
+        print(f"[YouTube Error] {e}")
     return False, None, None
 
 @app.route('/descargar', methods=['POST'])
@@ -193,7 +143,7 @@ def descargar():
         if not exito and ('pinterest.com' in link or 'pin.it' in link_bruto or plataforma == 'pinterest'):
             exito, media_url, ext = extraer_pinterest(link)
 
-        # Siempre intentamos YouTube si no se resolvió antes
+        # YouTube (o cualquier otra cosa que yt-dlp soporte)
         if not exito:
             exito, media_url, ext = extraer_youtube(link, formato)
 
@@ -207,7 +157,7 @@ def descargar():
         else:
             return jsonify({
                 "success": False,
-                "error": "El servidor de extracción tardó demasiado o la URL es privada. Reintenta."
+                "error": "No se pudo extraer el media. Prueba otra URL o reintenta."
             }), 200
 
     except Exception as err:
@@ -223,4 +173,4 @@ def serve_sw():
     return "", 404
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(debug=True, host='0.0.0.0', port=5000)
