@@ -99,7 +99,9 @@ def extraer_pinterest_directo(url):
 
 
 def extraer_youtube(url, formato):
-    """Extrae información de YouTube sin saturar la memoria RAM del servidor."""
+    """Extrae información de YouTube utilizando cookies para evadir el bloqueo de IP."""
+    cookies_path = os.path.join(BASE_DIR, 'cookies.txt')
+    
     ydl_opts = {
         'format': 'bestaudio/best' if formato == 'mp3' else 'b[ext=mp4]/best[ext=mp4]/best',
         'quiet': True,
@@ -111,6 +113,10 @@ def extraer_youtube(url, formato):
             }
         }
     }
+
+    # Si el archivo cookies.txt existe, se lo pasamos a yt-dlp
+    if os.path.exists(cookies_path):
+        ydl_opts['cookiefile'] = cookies_path
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
