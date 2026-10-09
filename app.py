@@ -108,6 +108,36 @@ def extraer_pinterest_directo(url):
     return None, None
 
 
+def extraer_tiktok_api(url, formato, filepath):
+    """Procesa publicaciones de TikTok (videos y fotos) a través de la API de TikWM."""
+    try:
+        api_url = f"https://www.tikwm.com/api/?url={url}"
+        res = requests.get(api_url, timeout=10).json()
+        if res.get('code') == 0 and 'data' in res:
+            data = res['data']
+            media_url = None
+            
+            # Si se solicita audio MP3
+            if formato == 'mp3':
+                media_url = data.get('music')
+            # Si la publicación es un carrusel de imágenes
+            elif 'images' in data and len(data['images']) > 0:
+                media_url = data['images'][0]
+            # Si la publicación es un video
+            else:
+                media_url = data.get('play')
+
+            if media_url:
+                r = requests.get(media_url, timeout=20)
+                if r.status_code == 200:
+                    with open(filepath, 'wb') as f:
+                        f.write(r.content)
+                    return True
+    except Exception as e:
+        print(f"Error en extracción TikTok API: {e}")
+    return False
+
+
 @app.route('/descargar', methods=['POST'])
 def descargar():
     data = request.get_json() or {}
@@ -132,8 +162,6 @@ def descargar():
     except Exception:
         ffmpeg_path = None
 
-    # Opciones optimizadas contra bloqueos de YouTube en Render
-   # Opciones optimizadas contra bloqueos severos de YouTube en servidores en la nube
     opciones_anti_bot = [
         '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
         '--extractor-args', 'youtube:player_client=android_vr,ios,mweb',
@@ -144,11 +172,11 @@ def descargar():
         '--concurrent-fragments', '5'
     ]
 
-    yt_dlp_exito = False
+    descarga_exitosa = False
     filename = ""
     filepath = ""
 
-    # --- PROCESAMIENTO CON YT-DLP ---
+    # --- INTENTO CON YT-DLP ---
     if formato == 'mp3':
         filename = f"audio_{id_unico}.mp3"
         filepath = os.path.join(DOWNLOAD_FOLDER, filename)
@@ -175,12 +203,21 @@ def descargar():
     try:
         subprocess.run(comando, check=True, timeout=120)
         if os.path.exists(filepath) and os.path.getsize(filepath) > 0:
-            yt_dlp_exito = True
+            descarga_exitosa = True
     except Exception:
-        yt_dlp_exito = False
+        descarga_exitosa = False
 
-    # --- FALLBACK DE EXTRACCIÓN DIRECTA PARA PINTEREST ---
-    if not yt_dlp_exito and ('pinterest.com' in link or 'pin.it' in link_bruto):
+    # --- FALLBACK 1: PROCESAMIENTO TIKTOK (Fotos, Videos, MP3) ---
+    if not descarga_exitosa and ('tiktok.com' in link or 'vt.tiktok.com' in link_bruto):
+        # Ajustar extensión para imágenes
+        if '/photo/' in link and formato != 'mp3':
+            filename = f"media_{id_unico}.jpg"
+            filepath = os.path.join(DOWNLOAD_FOLDER, filename)
+            
+        descarga_exitosa = extraer_tiktok_api(link, formato, filepath)
+
+    # --- FALLBACK 2: EXTRACCIÓN DIRECTA PINTEREST ---
+    if not descarga_exitosa and ('pinterest.com' in link or 'pin.it' in link_bruto):
         media_url, ext = extraer_pinterest_directo(link)
         if media_url:
             filename = f"media_{id_unico}.{ext}"
@@ -191,12 +228,12 @@ def descargar():
                 if req.status_code == 200:
                     with open(filepath, 'wb') as f:
                         f.write(req.content)
-                    yt_dlp_exito = True
+                    descarga_exitosa = True
             except Exception:
-                yt_dlp_exito = False
+                descarga_exitosa = False
 
     # --- RESPUESTA DE ARCHIVO O ERROR ---
-    if yt_dlp_exito and os.path.exists(filepath):
+    if descarga_exitosa and os.path.exists(filepath):
         return jsonify({
             "success": True,
             "download_url": f"/obtener-archivo/{filename}",
