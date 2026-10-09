@@ -128,35 +128,63 @@ def extraer_pinterest_directo(url):
     return None, None
 
 
-def descargar_con_ytdlp(url, formato, filepath_sin_ext):
-    """Extrae usando la librería nativa yt_dlp en Python (Anti-bloqueos de YouTube)."""
-    if formato == 'mp3':
-        extension = 'mp3'
-        outtmpl = f"{filepath_sin_ext}.%(ext)s"
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'outtmpl': outtmpl,
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }],
-            'quiet': True,
-            'no_warnings': True,
-            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-            'extractor_args': {'youtube': {'player_client': ['android_vr', 'ios', 'mweb']}}
+def descargar_youtube_api(url, formato, filepath_base):
+    """Fallback usando la API pública de Cobalt para evitar bloqueos de IP de YouTube en Render."""
+    try:
+        # Petición a instancia pública de cobalt.tools
+        api_url = "https://api.cobalt.tools/api/json"
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json"
         }
-    else:
-        extension = 'mp4'
-        outtmpl = f"{filepath_sin_ext}.%(ext)s"
-        ydl_opts = {
-            'format': 'b[ext=mp4]/best[ext=mp4]/best',
-            'outtmpl': outtmpl,
-            'quiet': True,
-            'no_warnings': True,
-            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-            'extractor_args': {'youtube': {'player_client': ['android_vr', 'ios', 'mweb']}}
+        
+        payload = {
+            "url": url,
+            "isAudioOnly": True if formato == 'mp3' else False,
+            "aFormat": "mp3" if formato == 'mp3' else None
         }
+
+        res = requests.post(api_url, json=payload, headers=headers, timeout=15).json()
+
+        media_url = None
+        if res.get('status') == 'redirect' or res.get('status') == 'stream':
+            media_url = res.get('url')
+
+        if media_url:
+            extension = 'mp3' if formato == 'mp3' else 'mp4'
+            final_filename = f"{os.path.basename(filepath_base)}.{extension}"
+            final_filepath = f"{filepath_base}.{extension}"
+
+            r = requests.get(media_url, timeout=30, stream=True)
+            if r.status_code == 200:
+                with open(final_filepath, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                return True, final_filename, extension
+    except Exception as e:
+        print(f"Error en API YouTube (Cobalt): {e}")
+
+    # Si la API falla, intenta con yt-dlp nativo
+    return descargar_con_ytdlp_nativo(url, formato, filepath_base)
+
+
+def descargar_con_ytdlp_nativo(url, formato, filepath_sin_ext):
+    """Intento secundario con yt_dlp pasando Cookies / User-Agent rotativos."""
+    extension = 'mp3' if formato == 'mp3' else 'mp4'
+    outtmpl = f"{filepath_sin_ext}.%(ext)s"
+    
+    ydl_opts = {
+        'format': 'bestaudio/best' if formato == 'mp3' else 'b[ext=mp4]/best',
+        'outtmpl': outtmpl,
+        'quiet': True,
+        'no_warnings': True,
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['ios', 'mweb', 'android_vr']
+            }
+        }
+    }
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -165,14 +193,9 @@ def descargar_con_ytdlp(url, formato, filepath_sin_ext):
         archivo_final = f"{filepath_sin_ext}.{extension}"
         if os.path.exists(archivo_final) and os.path.getsize(archivo_final) > 0:
             return True, os.path.basename(archivo_final), extension
-        
-        # Buscar archivo generado con variante de extensión
-        for file_in_dir in os.listdir(DOWNLOAD_FOLDER):
-            if file_in_dir.startswith(os.path.basename(filepath_sin_ext)):
-                ext_hallada = file_in_dir.split('.')[-1]
-                return True, file_in_dir, ext_hallada
     except Exception as e:
-        print(f"Error en yt_dlp: {e}")
+        print(f"Error yt_dlp nativo: {e}")
+
     return False, None, None
 
 
