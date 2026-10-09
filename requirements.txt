@@ -1,5 +1,6 @@
+Flask==3.0.2
+gunicorn==21.2.0
+requests==2.31.0
+beautifulsoup4==4.12.3
 yt-dlp
-requests
-beautifulsoup4
-Flask
-imageio-ffmpeg
+imageio-ffmpeg==0.4.9
