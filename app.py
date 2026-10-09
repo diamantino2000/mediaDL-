@@ -4,15 +4,10 @@ import uuid
 import json
 import requests
 from bs4 import BeautifulSoup
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, Response
 import yt_dlp
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DOWNLOAD_FOLDER = os.path.join(BASE_DIR, 'downloads')
-
-if not os.path.exists(DOWNLOAD_FOLDER):
-    os.makedirs(DOWNLOAD_FOLDER)
-
 app = Flask(__name__)
 
 # --- RUTAS DE NAVEGACIÓN ---
@@ -52,7 +47,7 @@ def resolver_url_final(url):
 
 
 def extraer_tiktok_api(url, formato):
-    """Extrae enlaces de TikTok mediante la API de TikWM."""
+    """Extrae datos de TikTok vía TikWM."""
     try:
         api_url = f"https://www.tikwm.com/api/?url={url}"
         res = requests.get(api_url, timeout=10).json()
@@ -71,7 +66,7 @@ def extraer_tiktok_api(url, formato):
 
 
 def extraer_pinterest_directo(url):
-    """Extrae enlaces directos de Pinterest mediante web scraping."""
+    """Extrae datos de Pinterest vía Scraping."""
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
     }
@@ -99,18 +94,16 @@ def extraer_pinterest_directo(url):
 
 
 def extraer_youtube(url, formato):
-    """Extracción optimizada para YouTube con clientes móviles anti-bloqueo y fallback de APIs."""
-    
-    # 1. Intento principal con yt_dlp usando el cliente 'mweb' y 'ios'
+    """Extrae YouTube usando clientes de Android VR / iOS / Web para saltarse bloqueos."""
     ydl_opts = {
         'format': 'ba/best' if formato == 'mp3' else 'b[ext=mp4]/best[ext=mp4]/best',
         'quiet': True,
         'no_warnings': True,
         'skip_download': True,
-        'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         'extractor_args': {
             'youtube': {
-                'player_client': ['mweb', 'ios', 'android']
+                'player_client': ['android_vr', 'ios', 'mweb']
             }
         }
     }
@@ -129,20 +122,15 @@ def extraer_youtube(url, formato):
     except Exception as e:
         print(f"Error yt_dlp: {e}")
 
-    # 2. Fallback con API Invidious (Expresion regular corregida)
+    # Fallback rápido con Invidious API
     try:
         video_id_match = re.search(r"(?:v=|\/|embed\/|shorts\/)([0-9A-Za-z_-]{11})", url)
         if video_id_match:
             v_id = video_id_match.group(1)
-            instancias_invidious = [
-                "https://inv.tux.pizza",
-                "https://invidious.nerdvpn.de",
-                "https://invidious.flokinet.to"
-            ]
-            for inv_base in instancias_invidious:
+            instancias = ["https://inv.tux.pizza", "https://invidious.nerdvpn.de", "https://invidious.flokinet.to"]
+            for base in instancias:
                 try:
-                    inv_res = requests.get(f"{inv_base}/api/v1/videos/{v_id}", timeout=6).json()
-                    
+                    inv_res = requests.get(f"{base}/api/v1/videos/{v_id}", timeout=5).json()
                     if formato == 'mp3' and 'adaptiveFormats' in inv_res:
                         for f in inv_res['adaptiveFormats']:
                             if 'audio' in f.get('type', ''):
@@ -152,7 +140,7 @@ def extraer_youtube(url, formato):
                 except Exception:
                     continue
     except Exception as e:
-        print(f"Error Fallback Invidious: {e}")
+        print(f"Error Invidious: {e}")
 
     return False, None, None
 
@@ -194,9 +182,11 @@ def descargar():
             exito, media_url, ext = extraer_youtube(link, formato)
 
         if exito and media_url:
+            # EN LUGAR DE ENVIAR LA URL DIRECTA DE YOUTUBE, LA ENVIAMOS A NUESTRO PROXY LOCAL
+            proxy_url = f"/stream-media?target={requests.utils.quote(media_url)}"
             return jsonify({
                 "success": True,
-                "download_url": media_url,
+                "download_url": proxy_url,
                 "filename": f"media.{ext}",
                 "tipo": ext
             })
@@ -206,8 +196,27 @@ def descargar():
             }), 400
 
     except Exception as err:
-        print(f"Error interno del servidor: {err}")
+        print(f"Error servidor: {err}")
         return jsonify({"error": "Ocurrió un error interno en el servidor."}), 500
+
+
+# --- RUTA PROXY PARA BASS-PASS DE CORS Y BLOQUEOS DE YOUTUBE ---
+@app.route('/stream-media')
+def stream_media():
+    target_url = request.args.get('target')
+    if not target_url:
+        return "URL objetivo no provista", 400
+
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+    }
+
+    try:
+        req = requests.get(target_url, headers=headers, stream=True, timeout=15)
+        response_headers = [(k, v) for k, v in req.raw.headers.items() if k.lower() not in ['content-encoding', 'transfer-encoding']]
+        return Response(req.iter_content(chunk_size=1024 * 64), status=req.status_code, headers=response_headers)
+    except Exception as e:
+        return f"Error de transmisión: {e}", 500
 
 
 @app.route('/sw.js')
