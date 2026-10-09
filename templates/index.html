@@ -4,14 +4,15 @@
   <meta name="robots" content="index, follow">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <!-- EVITA BLOQUEOS DE CORS DE YOUTUBE / TIKTOK EN EL NAVEGADOR -->
+  
+  <!-- EVITA BLOQUEOS DE CORS Y REFERRER AL REPRODUCIR CDN DE YOUTUBE / TIKTOK -->
   <meta name="referrer" content="no-referrer">
   <meta name="google-site-verification" content="MI_Hq14iBWIEfl1lyAjPv81ga14D-JDykYDLOLaC3gY" />
   
   <link rel="icon" type="image/png" href="/static/logo.png">
   <title>Media Downloader Pro - TikTok, YouTube & Pinterest</title>
-  
-  <!-- Script publicitario asíncrono para que no bloquee el HTML -->
+
+  <!-- Script publicitario cargado asíncronamente para no bloquear la app -->
   <script id="aclib" type="text/javascript" src="https://acscdn.com/script/aclib.js" async></script>
   
   <style>
@@ -246,7 +247,7 @@
     #mediaContainer video {
       width: 100% !important;
       height: auto !important;
-      max-height: 65vh;
+      max-height: 60vh;
       object-fit: contain;
       border-radius: 12px;
       margin-bottom: 15px;
@@ -286,8 +287,8 @@
 <script>
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js')
-      .then(reg => console.log('Service Worker registrado:', reg))
-      .catch(err => console.error('Error Service Worker:', err));
+      .then(reg => console.log('SW registrado:', reg))
+      .catch(err => console.error('Error SW:', err));
   }
 </script>
 
@@ -460,7 +461,7 @@
 
           const ext = (data.tipo || '').toLowerCase();
 
-          // SE AGREGA referrerpolicy="no-referrer" PARA NAVEGADORES
+          // Uso explícito de referrerpolicy="no-referrer" en cada tag inyectado
           if (['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext)) {
             downloadLink.innerText = '⬇️ Guardar Imagen HD';
             mediaContainer.innerHTML = `<img src="${data.download_url}" referrerpolicy="no-referrer">`;
@@ -477,11 +478,11 @@
           resultBox.style.display = 'block';
         } else {
           statusMsg.style.color = '#ef4444';
-          statusMsg.innerText = "❌ " + (data.error || "Ocurrió un error.");
+          statusMsg.innerText = "❌ " + (data.error || "No se pudo extraer el enlace.");
         }
       } catch (err) {
         statusMsg.style.color = '#ef4444';
-        statusMsg.innerText = "❌ Error de conexión con el servidor.";
+        statusMsg.innerText = "❌ Error de conexión al servidor.";
       } finally {
         btnText.style.display = 'block';
         btnSpinner.style.display = 'none';
