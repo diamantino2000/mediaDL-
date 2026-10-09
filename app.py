@@ -52,7 +52,7 @@ def resolver_url_final(url):
 
 
 def extraer_tiktok_api(url, formato):
-    """Extrae enlaces de TikTok mediante TikWM."""
+    """Extrae enlaces de TikTok mediante la API de TikWM."""
     try:
         api_url = f"https://www.tikwm.com/api/?url={url}"
         res = requests.get(api_url, timeout=10).json()
@@ -60,18 +60,18 @@ def extraer_tiktok_api(url, formato):
         if res.get('code') == 0 and 'data' in res:
             data = res['data']
             if formato == 'mp3' and data.get('music'):
-                return True, data.get('music'), 'mp3', True
+                return True, data.get('music'), 'mp3'
             elif data.get('play'):
-                return True, data.get('play'), 'mp4', True
+                return True, data.get('play'), 'mp4'
             elif 'images' in data and len(data['images']) > 0:
-                return True, data['images'][0], 'jpg', True
+                return True, data['images'][0], 'jpg'
     except Exception as e:
         print(f"Error TikWM API: {e}")
-    return False, None, None, False
+    return False, None, None
 
 
 def extraer_pinterest_directo(url):
-    """Extrae enlaces directos de Pinterest."""
+    """Extrae enlaces directos de Pinterest mediante web scraping."""
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
     }
@@ -99,58 +99,63 @@ def extraer_pinterest_directo(url):
 
 
 def extraer_youtube(url, formato):
-    """Extrae YouTube rotando instancias de Cobalt para evadir el bloqueo de IP de Render."""
+    """Extracción optimizada para YouTube con clientes móviles anti-bloqueo y fallback de APIs."""
     
-    # Lista de instancias de API públicas de respaldo
-    instancias = [
-        "https://api.cobalt.tools",
-        "https://cobalt-api.kwi.li",
-        "https://co.wuk.sh"
-    ]
-
-    payload = {
-        "url": url,
-        "downloadMode": "audio" if formato == 'mp3' else "auto",
-        "audioFormat": "mp3" if formato == 'mp3' else "best"
+    # 1. Intento principal con yt_dlp usando el cliente 'mweb' y 'ios'
+    ydl_opts = {
+        'format': 'ba/best' if formato == 'mp3' else 'b[ext=mp4]/best[ext=mp4]/best',
+        'quiet': True,
+        'no_warnings': True,
+        'skip_download': True,
+        'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['mweb', 'ios', 'android']
+            }
+        }
     }
 
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    }
-
-    # 1. Probar instancias públicas de Cobalt
-    for base_url in instancias:
-        try:
-            res = requests.post(f"{base_url}/", json=payload, headers=headers, timeout=10)
-            if res.status_code == 200:
-                data = res.json()
-                media_url = data.get('url') or (data.get('picker') and data['picker'][0].get('url'))
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            if info:
+                media_url = info.get('url')
+                if not media_url and 'formats' in info and len(info['formats']) > 0:
+                    media_url = info['formats'][-1].get('url')
+                
                 if media_url:
                     ext = 'mp3' if formato == 'mp3' else 'mp4'
-                    return True, media_url, ext, True
-        except Exception as e:
-            print(f"Fallo en instancia {base_url}: {e}")
-            continue
-
-    # 2. Intento de fallback con Invidious API
-    try:
-        video_id_match = re.search(r"(?:v=|\/([0-9A-Za-z_-]{11}))", url)
-        if video_id_match:
-            v_id = video_id_match.group(1) or video_id_match.group(0).replace("v=", "")
-            inv_res = requests.get(f"https://inv.tux.pizza/api/v1/videos/{v_id}", timeout=8).json()
-            
-            if formato == 'mp3' and 'adaptiveFormats' in inv_res:
-                for f in inv_res['adaptiveFormats']:
-                    if 'audio' in f.get('type', ''):
-                        return True, f['url'], 'mp3', True
-            elif 'formatStreams' in inv_res and len(inv_res['formatStreams']) > 0:
-                return True, inv_res['formatStreams'][-1]['url'], 'mp4', True
+                    return True, media_url, ext
     except Exception as e:
-        print(f"Fallo en Invidious API: {e}")
+        print(f"Error yt_dlp: {e}")
 
-    return False, None, None, False
+    # 2. Fallback con API Invidious (Expresion regular corregida)
+    try:
+        video_id_match = re.search(r"(?:v=|\/|embed\/|shorts\/)([0-9A-Za-z_-]{11})", url)
+        if video_id_match:
+            v_id = video_id_match.group(1)
+            instancias_invidious = [
+                "https://inv.tux.pizza",
+                "https://invidious.nerdvpn.de",
+                "https://invidious.flokinet.to"
+            ]
+            for inv_base in instancias_invidious:
+                try:
+                    inv_res = requests.get(f"{inv_base}/api/v1/videos/{v_id}", timeout=6).json()
+                    
+                    if formato == 'mp3' and 'adaptiveFormats' in inv_res:
+                        for f in inv_res['adaptiveFormats']:
+                            if 'audio' in f.get('type', ''):
+                                return True, f['url'], 'mp3'
+                    elif 'formatStreams' in inv_res and len(inv_res['formatStreams']) > 0:
+                        return True, inv_res['formatStreams'][-1]['url'], 'mp4'
+                except Exception:
+                    continue
+    except Exception as e:
+        print(f"Error Fallback Invidious: {e}")
+
+    return False, None, None
+
 
 @app.route('/descargar', methods=['POST'])
 def descargar():
@@ -174,7 +179,7 @@ def descargar():
 
         # 1. TIKTOK
         if 'tiktok.com' in link or 'vt.tiktok.com' in link_bruto or plataforma == 'tiktok':
-            exito, media_url, ext, es_directo = extraer_tiktok_api(link, formato)
+            exito, media_url, ext = extraer_tiktok_api(link, formato)
 
         # 2. PINTEREST
         if not exito and ('pinterest.com' in link or 'pin.it' in link_bruto or plataforma == 'pinterest'):
@@ -186,7 +191,7 @@ def descargar():
 
         # 3. YOUTUBE
         if not exito:
-            exito, media_url, ext, es_directo = extraer_youtube(link, formato)
+            exito, media_url, ext = extraer_youtube(link, formato)
 
         if exito and media_url:
             return jsonify({
