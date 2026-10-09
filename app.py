@@ -1,11 +1,9 @@
 import os
 import re
-import uuid
 import json
 import requests
 from bs4 import BeautifulSoup
-from flask import Flask, request, jsonify, send_file, Response
-import yt_dlp
+from flask import Flask, request, jsonify, send_file
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__)
@@ -47,7 +45,7 @@ def resolver_url_final(url):
 
 
 def extraer_tiktok_api(url, formato):
-    """Extrae datos de TikTok vía TikWM."""
+    """Extrae enlaces de TikTok mediante TikWM."""
     try:
         api_url = f"https://www.tikwm.com/api/?url={url}"
         res = requests.get(api_url, timeout=10).json()
@@ -66,7 +64,7 @@ def extraer_tiktok_api(url, formato):
 
 
 def extraer_pinterest_directo(url):
-    """Extrae datos de Pinterest vía Scraping."""
+    """Extrae enlaces directos de Pinterest mediante scraping."""
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
     }
@@ -94,90 +92,36 @@ def extraer_pinterest_directo(url):
 
 
 def extraer_youtube(url, formato):
-    """Extrae enlaces de YouTube utilizando endpoints de Cobalt v10 y fallback con Invidious."""
+    """Extrae enlaces de YouTube utilizando la API unificada de Cobalt sin túnel local."""
     
-    # 1. Intento por Cobalt API v10 (formato actualizado de payload)
-    instancias_cobalt = [
+    instancias = [
         "https://api.cobalt.tools",
-        "https://cobalt-api.kwi.li"
+        "https://co.wuk.sh",
+        "https://cobalt.qwik.ws"
     ]
 
     payload = {
         "url": url,
-        "videoQuality": "720",
-        "downloadMode": "audio" if formato == 'mp3' else "auto"
+        "downloadMode": "audio" if formato == 'mp3' else "auto",
+        "audioFormat": "mp3"
     }
 
     headers = {
         "Accept": "application/json",
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        "Content-Type": "application/json"
     }
 
-    for endpoint in instancias_cobalt:
+    for base_url in instancias:
         try:
-            res = requests.post(endpoint, json=payload, headers=headers, timeout=8)
+            res = requests.post(f"{base_url}/", json=payload, headers=headers, timeout=8)
             if res.status_code == 200:
                 data = res.json()
-                # Cobalt v10 devuelve status 'tunnel', 'redirect' o 'picker'
-                media_url = data.get('url')
-                if not media_url and 'picker' in data and len(data['picker']) > 0:
-                    media_url = data['picker'][0].get('url')
-
+                media_url = data.get('url') or (data.get('picker') and data['picker'][0].get('url'))
                 if media_url:
                     ext = 'mp3' if formato == 'mp3' else 'mp4'
                     return True, media_url, ext
-        except Exception as e:
-            print(f"Error en endpoint {endpoint}: {e}")
+        except Exception:
             continue
-
-    # 2. Fallback con extractor de Invidious API
-    try:
-        video_id_match = re.search(r"(?:v=|\/|embed\/|shorts\/)([0-9A-Za-z_-]{11})", url)
-        if video_id_match:
-            v_id = video_id_match.group(1)
-            instancias_inv = [
-                "https://inv.tux.pizza",
-                "https://invidious.nerdvpn.de",
-                "https://invidious.drgns.space"
-            ]
-            for base in instancias_inv:
-                try:
-                    inv_res = requests.get(f"{base}/api/v1/videos/{v_id}", timeout=6).json()
-                    if formato == 'mp3' and 'adaptiveFormats' in inv_res:
-                        for f in inv_res['adaptiveFormats']:
-                            if 'audio' in f.get('type', ''):
-                                return True, f['url'], 'mp3'
-                    elif 'formatStreams' in inv_res and len(inv_res['formatStreams']) > 0:
-                        return True, inv_res['formatStreams'][-1]['url'], 'mp4'
-                except Exception:
-                    continue
-    except Exception as e:
-        print(f"Error Invidious: {e}")
-
-    # 3. Fallback final con yt_dlp nativo usando cliente Android VR
-    ydl_opts = {
-        'format': 'ba/best' if formato == 'mp3' else 'b[ext=mp4]/best[ext=mp4]/best',
-        'quiet': True,
-        'no_warnings': True,
-        'skip_download': True,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['android_vr', 'ios', 'mweb']
-            }
-        }
-    }
-
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            if info:
-                media_url = info.get('url') or (info.get('formats') and info['formats'][-1].get('url'))
-                if media_url:
-                    ext = 'mp3' if formato == 'mp3' else 'mp4'
-                    return True, media_url, ext
-    except Exception as e:
-        print(f"Error final yt_dlp: {e}")
 
     return False, None, None
 
@@ -219,40 +163,19 @@ def descargar():
             exito, media_url, ext = extraer_youtube(link, formato)
 
         if exito and media_url:
-            # Enviamos la URL a través del túnel /stream-media para sobrepasar CORS y bloqueos de origen
-            proxy_url = f"/stream-media?target={requests.utils.quote(media_url)}"
             return jsonify({
                 "success": True,
-                "download_url": proxy_url,
+                "download_url": media_url,
                 "filename": f"media.{ext}",
                 "tipo": ext
             })
         else:
             return jsonify({
-                "error": "No se pudo obtener el archivo de este enlace. Intenta con otro video público."
+                "error": "No se pudo extraer el video. Asegúrate de usar una URL pública válida de YouTube, TikTok o Pinterest."
             }), 400
 
     except Exception as err:
-        print(f"Error servidor: {err}")
-        return jsonify({"error": "Ocurrió un error interno en el servidor."}), 500
-
-
-@app.route('/stream-media')
-def stream_media():
-    target_url = request.args.get('target')
-    if not target_url:
-        return "URL objetivo no provista", 400
-
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-    }
-
-    try:
-        req = requests.get(target_url, headers=headers, stream=True, timeout=15)
-        response_headers = [(k, v) for k, v in req.raw.headers.items() if k.lower() not in ['content-encoding', 'transfer-encoding']]
-        return Response(req.iter_content(chunk_size=1024 * 64), status=req.status_code, headers=response_headers)
-    except Exception as e:
-        return f"Error de transmisión: {e}", 500
+        return jsonify({"error": "Error interno al procesar la solicitud."}), 500
 
 
 @app.route('/sw.js')
