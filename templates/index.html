@@ -281,8 +281,8 @@
 <script>
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js')
-      .then(reg => console.log('Service Worker registrado con éxito:', reg))
-      .catch(err => console.error('Error al registrar Service Worker:', err));
+      .then(reg => console.log('Service Worker registrado:', reg))
+      .catch(err => console.error('Error Service Worker:', err));
   }
 </script>
 
@@ -471,7 +471,7 @@
           resultBox.style.display = 'block';
         } else {
           statusMsg.style.color = '#ef4444';
-          statusMsg.innerText = "❌ " + (data.error || "Ocurrió un error al procesar.");
+          statusMsg.innerText = "❌ " + (data.error || "Ocurrió un error.");
         }
       } catch (err) {
         statusMsg.style.color = '#ef4444';
