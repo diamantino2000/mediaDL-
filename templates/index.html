@@ -4,10 +4,15 @@
   <meta name="robots" content="index, follow">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- EVITA BLOQUEOS DE CORS DE YOUTUBE / TIKTOK EN EL NAVEGADOR -->
+  <meta name="referrer" content="no-referrer">
   <meta name="google-site-verification" content="MI_Hq14iBWIEfl1lyAjPv81ga14D-JDykYDLOLaC3gY" />
+  
   <link rel="icon" type="image/png" href="/static/logo.png">
   <title>Media Downloader Pro - TikTok, YouTube & Pinterest</title>
-  <script id="aclib" type="text/javascript" src="https://acscdn.com/script/aclib.js"></script>
+  
+  <!-- Script publicitario asíncrono para que no bloquee el HTML -->
+  <script id="aclib" type="text/javascript" src="https://acscdn.com/script/aclib.js" async></script>
   
   <style>
     :root {
@@ -334,7 +339,7 @@
 
       <div class="result-box" id="resultBox">
         <div id="mediaContainer"></div>
-        <a href="#" id="downloadLink" class="btn-save" download target="_blank">⬇️ Guardar Archivo</a>
+        <a href="#" id="downloadLink" class="btn-save" download target="_blank" rel="noreferrer">⬇️ Guardar Archivo</a>
       </div>
     </div>
   </main>
@@ -446,7 +451,7 @@
 
         const data = await response.json();
 
-        if (data.success) {
+        if (data.success && data.download_url) {
           statusMsg.style.color = '#10b981';
           statusMsg.innerText = "¡Procesado con éxito!";
 
@@ -455,17 +460,18 @@
 
           const ext = (data.tipo || '').toLowerCase();
 
+          // SE AGREGA referrerpolicy="no-referrer" PARA NAVEGADORES
           if (['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext)) {
             downloadLink.innerText = '⬇️ Guardar Imagen HD';
-            mediaContainer.innerHTML = `<img src="${data.download_url}">`;
+            mediaContainer.innerHTML = `<img src="${data.download_url}" referrerpolicy="no-referrer">`;
           } 
           else if (ext === 'mp3') {
             downloadLink.innerText = '⬇️ Guardar Audio MP3';
-            mediaContainer.innerHTML = `<audio controls src="${data.download_url}"></audio>`;
+            mediaContainer.innerHTML = `<audio controls src="${data.download_url}" referrerpolicy="no-referrer"></audio>`;
           } 
           else {
             downloadLink.innerText = '⬇️ Guardar Video MP4';
-            mediaContainer.innerHTML = `<video controls autoplay src="${data.download_url}"></video>`;
+            mediaContainer.innerHTML = `<video controls playsinline autoplay src="${data.download_url}" referrerpolicy="no-referrer"></video>`;
           }
 
           resultBox.style.display = 'block';
