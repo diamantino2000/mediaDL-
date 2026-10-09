@@ -99,39 +99,58 @@ def extraer_pinterest_directo(url):
 
 
 def extraer_youtube(url, formato):
-    """Extrae información de YouTube utilizando cookies para evadir el bloqueo de IP."""
-    cookies_path = os.path.join(BASE_DIR, 'cookies.txt')
+    """Extrae YouTube rotando instancias de Cobalt para evadir el bloqueo de IP de Render."""
     
-    ydl_opts = {
-        'format': 'bestaudio/best' if formato == 'mp3' else 'b[ext=mp4]/best[ext=mp4]/best',
-        'quiet': True,
-        'no_warnings': True,
-        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['ios', 'mweb', 'android_vr']
-            }
-        }
+    # Lista de instancias de API públicas de respaldo
+    instancias = [
+        "https://api.cobalt.tools",
+        "https://cobalt-api.kwi.li",
+        "https://co.wuk.sh"
+    ]
+
+    payload = {
+        "url": url,
+        "downloadMode": "audio" if formato == 'mp3' else "auto",
+        "audioFormat": "mp3" if formato == 'mp3' else "best"
     }
 
-    # Si el archivo cookies.txt existe, se lo pasamos a yt-dlp
-    if os.path.exists(cookies_path):
-        ydl_opts['cookiefile'] = cookies_path
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    }
 
+    # 1. Probar instancias públicas de Cobalt
+    for base_url in instancias:
+        try:
+            res = requests.post(f"{base_url}/", json=payload, headers=headers, timeout=10)
+            if res.status_code == 200:
+                data = res.json()
+                media_url = data.get('url') or (data.get('picker') and data['picker'][0].get('url'))
+                if media_url:
+                    ext = 'mp3' if formato == 'mp3' else 'mp4'
+                    return True, media_url, ext, True
+        except Exception as e:
+            print(f"Fallo en instancia {base_url}: {e}")
+            continue
+
+    # 2. Intento de fallback con Invidious API
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            if 'url' in info:
-                ext = 'mp3' if formato == 'mp3' else info.get('ext', 'mp4')
-                return True, info['url'], ext, True
-            elif 'formats' in info and len(info['formats']) > 0:
-                direct_url = info['formats'][-1]['url']
-                return True, direct_url, 'mp4', True
+        video_id_match = re.search(r"(?:v=|\/([0-9A-Za-z_-]{11}))", url)
+        if video_id_match:
+            v_id = video_id_match.group(1) or video_id_match.group(0).replace("v=", "")
+            inv_res = requests.get(f"https://inv.tux.pizza/api/v1/videos/{v_id}", timeout=8).json()
+            
+            if formato == 'mp3' and 'adaptiveFormats' in inv_res:
+                for f in inv_res['adaptiveFormats']:
+                    if 'audio' in f.get('type', ''):
+                        return True, f['url'], 'mp3', True
+            elif 'formatStreams' in inv_res and len(inv_res['formatStreams']) > 0:
+                return True, inv_res['formatStreams'][-1]['url'], 'mp4', True
     except Exception as e:
-        print(f"Error yt_dlp: {e}")
+        print(f"Fallo en Invidious API: {e}")
 
     return False, None, None, False
-
 
 @app.route('/descargar', methods=['POST'])
 def descargar():
