@@ -11,7 +11,6 @@ app = Flask(__name__)
 # --- RUTAS DE NAVEGACIÓN ---
 @app.route('/')
 @app.route('/tiktok')
-@app.route('/youtube')
 @app.route('/pinterest')
 def index():
     html_raiz = os.path.join(BASE_DIR, 'index.html')
@@ -34,22 +33,22 @@ def favicon():
 
 
 def resolver_url_final(url):
-    """Sigue acortadores tipo vt.tiktok.com, pin.it o youtu.be."""
+    """Sigue las redirecciones de acortadores como vt.tiktok.com o pin.it."""
     try:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
         }
-        res = requests.head(url, allow_redirects=True, headers=headers, timeout=4)
+        res = requests.head(url, allow_redirects=True, headers=headers, timeout=5)
         return res.url
     except Exception:
         return url
 
 
-# --- EXTRACTOR TIKTOK ---
+# --- EXTRACTOR TIKTOK (TikWM + Fallback SSSTik) ---
 def extraer_tiktok(url, formato):
     try:
         api_url = f"https://www.tikwm.com/api/?url={url}"
-        res = requests.get(api_url, timeout=5).json()
+        res = requests.get(api_url, timeout=6).json()
         if res.get('code') == 0 and 'data' in res:
             data = res['data']
             if formato == 'mp3' and data.get('music'):
@@ -60,6 +59,17 @@ def extraer_tiktok(url, formato):
                 return True, data['images'][0], 'jpg'
     except Exception as e:
         print(f"Error TikWM: {e}")
+
+    # Fallback SSSTik
+    try:
+        res = requests.post("https://ssstik.io/abc", data={"id": url, "locale": "es", "tt": "0"}, timeout=6)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        download_link = soup.find('a', class_='download_link')
+        if download_link and download_link.get('href'):
+            return True, download_link['href'], 'mp4'
+    except Exception as e:
+        print(f"Error SSSTik: {e}")
+
     return False, None, None
 
 
@@ -69,14 +79,14 @@ def extraer_pinterest(url):
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
     }
     try:
-        res = requests.get(url, headers=headers, allow_redirects=True, timeout=5)
+        res = requests.get(url, headers=headers, allow_redirects=True, timeout=6)
         
-        # 1. CDN MP4 directo
+        # CDN MP4 directo
         mp4_urls = re.findall(r'https://v1\.pinimg\.com/videos/[^\s"\'<>]+\.mp4', res.text)
         if mp4_urls:
             return True, mp4_urls[0], 'mp4'
 
-        # 2. Meta Tags de Video / Imagen
+        # Meta Tags de Video o Imagen
         soup = BeautifulSoup(res.text, 'html.parser')
         og_video = soup.find('meta', property='og:video') or soup.find('meta', property='og:video:secure_url')
         if og_video and og_video.get('content'):
@@ -90,59 +100,6 @@ def extraer_pinterest(url):
             return True, img_url_hd, ext
     except Exception as e:
         print(f"Error Pinterest: {e}")
-    return False, None, None
-
-
-# --- EXTRACTOR YOUTUBE (FALLBACK MULTI-APIS) ---
-def extraer_youtube(url, formato):
-    # 1. Instancias Públicas de Cobalt v10
-    instancias_cobalt = [
-        "https://api.cobalt.tools",
-        "https://co.wuk.sh",
-        "https://cobalt-api.kwi.li"
-    ]
-    payload = {
-        "url": url,
-        "videoQuality": "720",
-        "downloadMode": "audio" if formato == 'mp3' else "auto"
-    }
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0"
-    }
-
-    for endpoint in instancias_cobalt:
-        try:
-            r = requests.post(f"{endpoint}/", json=payload, headers=headers, timeout=4)
-            if r.status_code == 200:
-                data = r.json()
-                media_url = data.get('url') or (data.get('picker') and data['picker'][0].get('url'))
-                if media_url:
-                    return True, media_url, ('mp3' if formato == 'mp3' else 'mp4')
-        except Exception:
-            continue
-
-    # 2. Nodes Invidious
-    v_match = re.search(r"(?:v=|\/|embed\/|shorts\/)([0-9A-Za-z_-]{11})", url)
-    if v_match:
-        v_id = v_match.group(1)
-        nodes_invidious = [
-            "https://inv.tux.pizza",
-            "https://invidious.nerdvpn.de",
-            "https://invidious.flokinet.to"
-        ]
-        for node in nodes_invidious:
-            try:
-                inv_res = requests.get(f"{node}/api/v1/videos/{v_id}", timeout=4).json()
-                if formato == 'mp3' and 'adaptiveFormats' in inv_res:
-                    for f in inv_res['adaptiveFormats']:
-                        if 'audio' in f.get('type', ''):
-                            return True, f['url'], 'mp3'
-                elif 'formatStreams' in inv_res and len(inv_res['formatStreams']) > 0:
-                    return True, inv_res['formatStreams'][-1]['url'], 'mp4'
-            except Exception:
-                continue
 
     return False, None, None
 
@@ -166,15 +123,20 @@ def descargar():
         media_url = None
         ext = formato
 
-        # Routing según enlace
+        # Procesar TikTok
         if 'tiktok.com' in link or 'vt.tiktok.com' in link_bruto or plataforma == 'tiktok':
             exito, media_url, ext = extraer_tiktok(link, formato)
 
-        if not exito and ('pinterest.com' in link or 'pin.it' in link_bruto or plataforma == 'pinterest'):
+        # Procesar Pinterest
+        elif 'pinterest.com' in link or 'pin.it' in link_bruto or plataforma == 'pinterest':
             exito, media_url, ext = extraer_pinterest(link)
 
-        if not exito:
-            exito, media_url, ext = extraer_youtube(link, formato)
+        # Fallback por descarte
+        else:
+            if plataforma == 'pinterest':
+                exito, media_url, ext = extraer_pinterest(link)
+            else:
+                exito, media_url, ext = extraer_tiktok(link, formato)
 
         if exito and media_url:
             return jsonify({
@@ -186,7 +148,7 @@ def descargar():
         else:
             return jsonify({
                 "success": False,
-                "error": "No se pudo obtener el archivo. Asegúrate de que el enlace sea público y prueba de nuevo."
+                "error": "No se pudo extraer el archivo. Verifica que el enlace sea público e inténtalo de nuevo."
             }), 200
 
     except Exception as err:
@@ -204,7 +166,4 @@ def serve_sw():
 
 
 if __name__ == '__main__':
-    print("-------------------------------------------------------")
-    print("🚀 Servidor en ejecución local en http://127.0.0.1:5000/")
-    print("-------------------------------------------------------")
     app.run(debug=True, port=5000)
