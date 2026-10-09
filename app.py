@@ -2,10 +2,10 @@ import os
 import re
 import uuid
 import json
-import subprocess
 import requests
 from bs4 import BeautifulSoup
 from flask import Flask, request, jsonify, send_file
+import yt_dlp
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DOWNLOAD_FOLDER = os.path.join(BASE_DIR, 'downloads')
@@ -15,7 +15,7 @@ if not os.path.exists(DOWNLOAD_FOLDER):
 
 app = Flask(__name__)
 
-# --- RUTAS DE NAVEGACIÓN ---
+# --- RUTAS DE NAVEGACIÓN Y MULTI-PLATAFORMA ---
 @app.route('/')
 @app.route('/tiktok')
 @app.route('/youtube')
@@ -53,7 +53,7 @@ def resolver_url_final(url):
 
 
 def extraer_tiktok_api(url, formato, filepath_base):
-    """Fallback directo usando la API de TikWM para videos, MP3 e imágenes de TikTok."""
+    """Soporte directo para vídeos, MP3 e imágenes/carruseles de TikTok usando TikWM."""
     try:
         api_url = f"https://www.tikwm.com/api/?url={url}"
         res = requests.get(api_url, timeout=10).json()
@@ -63,40 +63,41 @@ def extraer_tiktok_api(url, formato, filepath_base):
             media_url = None
             extension = 'mp4'
 
-            # 1. Solicitud de MP3
+            # 1. Extraer Audio MP3
             if formato == 'mp3':
                 media_url = data.get('music')
                 extension = 'mp3'
-            # 2. Publicación de Video
+            # 2. Extraer Vídeo MP4
             elif data.get('play'):
                 media_url = data.get('play')
                 extension = 'mp4'
-            # 3. Publicación de Fotos/Carrusel (Slide)
+            # 3. Extraer Imagen/Carrusel (enlace tipo /photo/)
             elif 'images' in data and len(data['images']) > 0:
                 media_url = data['images'][0]
                 extension = 'jpg'
 
             if media_url:
+                final_filename = f"{os.path.basename(filepath_base)}.{extension}"
                 final_filepath = f"{filepath_base}.{extension}"
                 r = requests.get(media_url, timeout=20)
                 if r.status_code == 200:
                     with open(final_filepath, 'wb') as f:
                         f.write(r.content)
-                    return True, os.path.basename(final_filepath), extension
+                    return True, final_filename, extension
     except Exception as e:
-        print(f"Error en TikWM API: {e}")
+        print(f"Error TikWM API: {e}")
     return False, None, None
 
 
 def extraer_pinterest_directo(url):
-    """Extrae videos MP4 reales o imágenes HD de Pinterest."""
+    """Extrae MP4 reales o imágenes HD de Pinterest mediante Web Scraping."""
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
     }
     try:
         res = requests.get(url, headers=headers, allow_redirects=True, timeout=10)
         
-        # 1. CDN directo de Pinterest
+        # CDN directo de Pinterest
         mp4_urls = re.findall(r'https://v1\.pinimg\.com/videos/[^\s"\'<>]+\.mp4', res.text)
         if not mp4_urls:
             mp4_urls = re.findall(r'https://[^\s"\'<>]+\.mp4', res.text)
@@ -106,7 +107,6 @@ def extraer_pinterest_directo(url):
                 if 'pinterest' in video_url or 'pinimg' in video_url:
                     return video_url, 'mp4'
 
-        # 2. Búsqueda en tags de OpenGraph y HTML
         soup = BeautifulSoup(res.text, 'html.parser')
         og_video = soup.find('meta', property='og:video') or soup.find('meta', property='og:video:secure_url')
         if og_video and og_video.get('content'):
@@ -116,18 +116,6 @@ def extraer_pinterest_directo(url):
         if video_tag and video_tag.get('src'):
             return video_tag['src'], 'mp4'
 
-        # 3. Datos en JSON-LD
-        scripts = soup.find_all('script', type='application/ld+json')
-        for script in scripts:
-            if script.string:
-                try:
-                    data = json.loads(script.string)
-                    if isinstance(data, dict) and data.get('@type') == 'VideoObject' and 'contentUrl' in data:
-                        return data['contentUrl'], 'mp4'
-                except Exception:
-                    continue
-
-        # 4. Imagen HD como recurso final
         og_image = soup.find('meta', property='og:image')
         if og_image and og_image.get('content'):
             img_url = og_image['content']
@@ -138,6 +126,54 @@ def extraer_pinterest_directo(url):
     except Exception:
         pass
     return None, None
+
+
+def descargar_con_ytdlp(url, formato, filepath_sin_ext):
+    """Extrae usando la librería nativa yt_dlp en Python (Anti-bloqueos de YouTube)."""
+    if formato == 'mp3':
+        extension = 'mp3'
+        outtmpl = f"{filepath_sin_ext}.%(ext)s"
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'outtmpl': outtmpl,
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
+            }],
+            'quiet': True,
+            'no_warnings': True,
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+            'extractor_args': {'youtube': {'player_client': ['android_vr', 'ios', 'mweb']}}
+        }
+    else:
+        extension = 'mp4'
+        outtmpl = f"{filepath_sin_ext}.%(ext)s"
+        ydl_opts = {
+            'format': 'b[ext=mp4]/best[ext=mp4]/best',
+            'outtmpl': outtmpl,
+            'quiet': True,
+            'no_warnings': True,
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+            'extractor_args': {'youtube': {'player_client': ['android_vr', 'ios', 'mweb']}}
+        }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+            
+        archivo_final = f"{filepath_sin_ext}.{extension}"
+        if os.path.exists(archivo_final) and os.path.getsize(archivo_final) > 0:
+            return True, os.path.basename(archivo_final), extension
+        
+        # Buscar archivo generado con variante de extensión
+        for file_in_dir in os.listdir(DOWNLOAD_FOLDER):
+            if file_in_dir.startswith(os.path.basename(filepath_sin_ext)):
+                ext_hallada = file_in_dir.split('.')[-1]
+                return True, file_in_dir, ext_hallada
+    except Exception as e:
+        print(f"Error en yt_dlp: {e}")
+    return False, None, None
 
 
 @app.route('/descargar', methods=['POST'])
@@ -153,40 +189,23 @@ def descargar():
     urls = re.findall(r'https?://[^\s"]+', entrada)
     link_bruto = urls[0] if urls else entrada
 
-    # Resolver redirecciones de acortadores
     link = resolver_url_final(link_bruto)
     id_unico = str(uuid.uuid4())[:8]
-
-    # Obtener ejecutable de FFmpeg
-    try:
-        import imageio_ffmpeg
-        ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
-    except Exception:
-        ffmpeg_path = None
-
-    # Parámetros optimizados anti-bloqueo
-    opciones_anti_bot = [
-        '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-        '--extractor-args', 'youtube:player_client=android_vr,ios,mweb',
-        '--no-check-certificates',
-        '--no-playlist',
-        '--retries', '5'
-    ]
 
     descarga_exitosa = False
     filename = ""
     filepath_base = os.path.join(DOWNLOAD_FOLDER, f"media_{id_unico}")
     tipo_retorno = formato
 
-    # --- CASO A: TIKTOK ---
+    # --- 1. PROCESAR TIKTOK ---
     if 'tiktok.com' in link or 'vt.tiktok.com' in link_bruto or plataforma == 'tiktok':
-        exito, archivo_generado, ext_generada = extraer_tiktok_api(link, formato, filepath_base)
+        exito, archivo_gen, ext_gen = extraer_tiktok_api(link, formato, filepath_base)
         if exito:
             descarga_exitosa = True
-            filename = archivo_generado
-            tipo_retorno = ext_generada
+            filename = archivo_gen
+            tipo_retorno = ext_gen
 
-    # --- CASO B: PINTEREST ---
+    # --- 2. PROCESAR PINTEREST ---
     if not descarga_exitosa and ('pinterest.com' in link or 'pin.it' in link_bruto or plataforma == 'pinterest'):
         media_url, ext = extraer_pinterest_directo(link)
         if media_url:
@@ -203,42 +222,16 @@ def descargar():
             except Exception:
                 descarga_exitosa = False
 
-    # --- CASO C: YOUTUBE O EXTRACTION CON YT-DLP ---
+    # --- 3. PROCESAR YOUTUBE / EXTRACTOR GENERAL (YT-DLP) ---
     if not descarga_exitosa:
-        if formato == 'mp3':
-            filename = f"audio_{id_unico}.mp3"
-            filepath = os.path.join(DOWNLOAD_FOLDER, filename)
-            comando = [
-                'yt-dlp',
-                '-x',
-                '--audio-format', 'mp3',
-                '-o', filepath
-            ] + opciones_anti_bot + [link]
-        else:
-            filename = f"media_{id_unico}.mp4"
-            filepath = os.path.join(DOWNLOAD_FOLDER, filename)
-            comando = [
-                'yt-dlp',
-                '-f', 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best',
-                '--merge-output-format', 'mp4',
-                '-o', filepath
-            ] + opciones_anti_bot + [link]
+        exito, archivo_gen, ext_gen = descargar_con_ytdlp(link, formato, filepath_base)
+        if exito:
+            descarga_exitosa = True
+            filename = archivo_gen
+            tipo_retorno = ext_gen
 
-        if ffmpeg_path:
-            comando.insert(1, '--ffmpeg-location')
-            comando.insert(2, ffmpeg_path)
-
-        try:
-            subprocess.run(comando, check=True, timeout=120)
-            filepath_final = os.path.join(DOWNLOAD_FOLDER, filename)
-            if os.path.exists(filepath_final) and os.path.getsize(filepath_final) > 0:
-                descarga_exitosa = True
-                tipo_retorno = formato
-        except Exception:
-            descarga_exitosa = False
-
-    # --- RESPUESTA JSON ---
-    if descarga_exitosa:
+    # --- RESPUESTA ---
+    if descarga_exitosa and filename:
         return jsonify({
             "success": True,
             "download_url": f"/obtener-archivo/{filename}",
@@ -247,7 +240,7 @@ def descargar():
         })
     else:
         return jsonify({
-            "error": "No se pudo extraer el archivo. Verifica la URL o que el contenido sea público."
+            "error": "No se pudo extraer el archivo. Verifica que el enlace sea público."
         }), 500
 
 
