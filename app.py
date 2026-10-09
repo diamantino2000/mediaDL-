@@ -36,20 +36,18 @@ def favicon():
 def resolver_url_final(url):
     try:
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
         }
         res = requests.head(url, allow_redirects=True, headers=headers, timeout=5)
         return res.url
     except Exception:
         return url
 
-
-def extraer_tiktok_api(url, formato):
-    """Extrae enlaces de TikTok mediante TikWM."""
+# --- EXTRACTOR MULTI-CAPA PARA TIKTOK ---
+def extraer_tiktok(url, formato):
+    # Capa 1: TikWM API
     try:
-        api_url = f"https://www.tikwm.com/api/?url={url}"
-        res = requests.get(api_url, timeout=10).json()
-        
+        res = requests.get(f"https://www.tikwm.com/api/?url={url}", timeout=8).json()
         if res.get('code') == 0 and 'data' in res:
             data = res['data']
             if formato == 'mp3' and data.get('music'):
@@ -58,62 +56,74 @@ def extraer_tiktok_api(url, formato):
                 return True, data.get('play'), 'mp4'
             elif 'images' in data and len(data['images']) > 0:
                 return True, data['images'][0], 'jpg'
-    except Exception as e:
-        print(f"Error TikWM API: {e}")
+    except Exception:
+        pass
+
+    # Capa 2: SSSTik API Fallback
+    try:
+        res = requests.post("https://ssstik.io/abc", data={"id": url, "locale": "es", "tt": "0"}, timeout=8)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        download_link = soup.find('a', class_='download_link')
+        if download_link and download_link.get('href'):
+            return True, download_link['href'], 'mp4'
+    except Exception:
+        pass
+
     return False, None, None
 
-
-def extraer_pinterest_directo(url):
-    """Extrae enlaces directos de Pinterest mediante scraping."""
+# --- EXTRACTOR MULTI-CAPA PARA PINTEREST ---
+def extraer_pinterest(url):
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
     }
     try:
-        res = requests.get(url, headers=headers, allow_redirects=True, timeout=10)
+        res = requests.get(url, headers=headers, allow_redirects=True, timeout=8)
         
+        # 1. Scraping directo de CDN
         mp4_urls = re.findall(r'https://v1\.pinimg\.com/videos/[^\s"\'<>]+\.mp4', res.text)
         if mp4_urls:
-            return mp4_urls[0], 'mp4'
+            return True, mp4_urls[0], 'mp4'
 
         soup = BeautifulSoup(res.text, 'html.parser')
         og_video = soup.find('meta', property='og:video') or soup.find('meta', property='og:video:secure_url')
         if og_video and og_video.get('content'):
-            return og_video['content'], 'mp4'
+            return True, og_video['content'], 'mp4'
 
         og_image = soup.find('meta', property='og:image')
         if og_image and og_image.get('content'):
             img_url = og_image['content']
             img_url_hd = re.sub(r'/(x\d+|originals|\d+x)/', '/originals/', img_url)
             ext = 'png' if '.png' in img_url.lower() else ('webp' if '.webp' in img_url.lower() else 'jpg')
-            return img_url_hd, ext
+            return True, img_url_hd, ext
     except Exception:
         pass
-    return None, None
+    return False, None, None
 
-
+# --- EXTRACTOR MULTI-CAPA PARA YOUTUBE (SALTA BLOQUEO DE RENDER) ---
 def extraer_youtube(url, formato):
-    """Extrae enlaces de YouTube utilizando la API unificada de Cobalt sin túnel local."""
-    
-    instancias = [
+    # Capa 1: Instancias distribuidas de Cobalt v10
+    instancias_cobalt = [
         "https://api.cobalt.tools",
         "https://co.wuk.sh",
-        "https://cobalt.qwik.ws"
+        "https://cobalt.qwik.ws",
+        "https://cobalt-api.kwi.li"
     ]
 
     payload = {
         "url": url,
-        "downloadMode": "audio" if formato == 'mp3' else "auto",
-        "audioFormat": "mp3"
+        "videoQuality": "720",
+        "downloadMode": "audio" if formato == 'mp3' else "auto"
     }
 
     headers = {
         "Accept": "application/json",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     }
 
-    for base_url in instancias:
+    for base_url in instancias_cobalt:
         try:
-            res = requests.post(f"{base_url}/", json=payload, headers=headers, timeout=8)
+            res = requests.post(f"{base_url}/", json=payload, headers=headers, timeout=6)
             if res.status_code == 200:
                 data = res.json()
                 media_url = data.get('url') or (data.get('picker') and data['picker'][0].get('url'))
@@ -122,6 +132,47 @@ def extraer_youtube(url, formato):
                     return True, media_url, ext
         except Exception:
             continue
+
+    # Capa 2: API de Invidious (Instancias con IPs libres de bloqueo)
+    try:
+        video_id_match = re.search(r"(?:v=|\/|embed\/|shorts\/)([0-9A-Za-z_-]{11})", url)
+        if video_id_match:
+            v_id = video_id_match.group(1)
+            instancias_inv = [
+                "https://inv.tux.pizza",
+                "https://invidious.nerdvpn.de",
+                "https://invidious.flokinet.to",
+                "https://invidious.drgns.space"
+            ]
+            for base in instancias_inv:
+                try:
+                    inv_res = requests.get(f"{base}/api/v1/videos/{v_id}", timeout=6).json()
+                    if formato == 'mp3' and 'adaptiveFormats' in inv_res:
+                        for f in inv_res['adaptiveFormats']:
+                            if 'audio' in f.get('type', ''):
+                                return True, f['url'], 'mp3'
+                    elif 'formatStreams' in inv_res and len(inv_res['formatStreams']) > 0:
+                        return True, inv_res['formatStreams'][-1]['url'], 'mp4'
+                except Exception:
+                    continue
+    except Exception:
+        pass
+
+    # Capa 3: API de Piped
+    try:
+        video_id_match = re.search(r"(?:v=|\/|embed\/|shorts\/)([0-9A-Za-z_-]{11})", url)
+        if video_id_match:
+            v_id = video_id_match.group(1)
+            piped_res = requests.get(f"https://pipedapi.kavin.rocks/streams/{v_id}", timeout=6).json()
+            if formato == 'mp3' and 'audioStreams' in piped_res and len(piped_res['audioStreams']) > 0:
+                return True, piped_res['audioStreams'][0]['url'], 'mp3'
+            elif 'videoStreams' in piped_res and len(piped_res['videoStreams']) > 0:
+                for v in piped_res['videoStreams']:
+                    if v.get('videoOnly') == False:
+                        return True, v['url'], 'mp4'
+                return True, piped_res['videoStreams'][0]['url'], 'mp4'
+    except Exception:
+        pass
 
     return False, None, None
 
@@ -139,7 +190,6 @@ def descargar():
 
         urls = re.findall(r'https?://[^\s"]+', entrada)
         link_bruto = urls[0] if urls else entrada
-
         link = resolver_url_final(link_bruto)
         
         exito = False
@@ -148,15 +198,11 @@ def descargar():
 
         # 1. TIKTOK
         if 'tiktok.com' in link or 'vt.tiktok.com' in link_bruto or plataforma == 'tiktok':
-            exito, media_url, ext = extraer_tiktok_api(link, formato)
+            exito, media_url, ext = extraer_tiktok(link, formato)
 
         # 2. PINTEREST
         if not exito and ('pinterest.com' in link or 'pin.it' in link_bruto or plataforma == 'pinterest'):
-            p_url, p_ext = extraer_pinterest_directo(link)
-            if p_url:
-                exito = True
-                media_url = p_url
-                ext = p_ext
+            exito, media_url, ext = extraer_pinterest(link)
 
         # 3. YOUTUBE
         if not exito:
@@ -171,11 +217,11 @@ def descargar():
             })
         else:
             return jsonify({
-                "error": "No se pudo extraer el video. Asegúrate de usar una URL pública válida de YouTube, TikTok o Pinterest."
+                "error": "El servicio está procesando peticiones. Por favor vuelve a pulsar Descargar o prueba con otro enlace."
             }), 400
 
     except Exception as err:
-        return jsonify({"error": "Error interno al procesar la solicitud."}), 500
+        return jsonify({"error": "Error interno del servidor."}), 500
 
 
 @app.route('/sw.js')
