@@ -94,13 +94,73 @@ def extraer_pinterest_directo(url):
 
 
 def extraer_youtube(url, formato):
-    """Extrae YouTube usando clientes de Android VR / iOS / Web para saltarse bloqueos."""
+    """Extrae enlaces de YouTube utilizando endpoints de Cobalt v10 y fallback con Invidious."""
+    
+    # 1. Intento por Cobalt API v10 (formato actualizado de payload)
+    instancias_cobalt = [
+        "https://api.cobalt.tools",
+        "https://cobalt-api.kwi.li"
+    ]
+
+    payload = {
+        "url": url,
+        "videoQuality": "720",
+        "downloadMode": "audio" if formato == 'mp3' else "auto"
+    }
+
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    }
+
+    for endpoint in instancias_cobalt:
+        try:
+            res = requests.post(endpoint, json=payload, headers=headers, timeout=8)
+            if res.status_code == 200:
+                data = res.json()
+                # Cobalt v10 devuelve status 'tunnel', 'redirect' o 'picker'
+                media_url = data.get('url')
+                if not media_url and 'picker' in data and len(data['picker']) > 0:
+                    media_url = data['picker'][0].get('url')
+
+                if media_url:
+                    ext = 'mp3' if formato == 'mp3' else 'mp4'
+                    return True, media_url, ext
+        except Exception as e:
+            print(f"Error en endpoint {endpoint}: {e}")
+            continue
+
+    # 2. Fallback con extractor de Invidious API
+    try:
+        video_id_match = re.search(r"(?:v=|\/|embed\/|shorts\/)([0-9A-Za-z_-]{11})", url)
+        if video_id_match:
+            v_id = video_id_match.group(1)
+            instancias_inv = [
+                "https://inv.tux.pizza",
+                "https://invidious.nerdvpn.de",
+                "https://invidious.drgns.space"
+            ]
+            for base in instancias_inv:
+                try:
+                    inv_res = requests.get(f"{base}/api/v1/videos/{v_id}", timeout=6).json()
+                    if formato == 'mp3' and 'adaptiveFormats' in inv_res:
+                        for f in inv_res['adaptiveFormats']:
+                            if 'audio' in f.get('type', ''):
+                                return True, f['url'], 'mp3'
+                    elif 'formatStreams' in inv_res and len(inv_res['formatStreams']) > 0:
+                        return True, inv_res['formatStreams'][-1]['url'], 'mp4'
+                except Exception:
+                    continue
+    except Exception as e:
+        print(f"Error Invidious: {e}")
+
+    # 3. Fallback final con yt_dlp nativo usando cliente Android VR
     ydl_opts = {
         'format': 'ba/best' if formato == 'mp3' else 'b[ext=mp4]/best[ext=mp4]/best',
         'quiet': True,
         'no_warnings': True,
         'skip_download': True,
-        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         'extractor_args': {
             'youtube': {
                 'player_client': ['android_vr', 'ios', 'mweb']
@@ -112,35 +172,12 @@ def extraer_youtube(url, formato):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             if info:
-                media_url = info.get('url')
-                if not media_url and 'formats' in info and len(info['formats']) > 0:
-                    media_url = info['formats'][-1].get('url')
-                
+                media_url = info.get('url') or (info.get('formats') and info['formats'][-1].get('url'))
                 if media_url:
                     ext = 'mp3' if formato == 'mp3' else 'mp4'
                     return True, media_url, ext
     except Exception as e:
-        print(f"Error yt_dlp: {e}")
-
-    # Fallback rápido con Invidious API
-    try:
-        video_id_match = re.search(r"(?:v=|\/|embed\/|shorts\/)([0-9A-Za-z_-]{11})", url)
-        if video_id_match:
-            v_id = video_id_match.group(1)
-            instancias = ["https://inv.tux.pizza", "https://invidious.nerdvpn.de", "https://invidious.flokinet.to"]
-            for base in instancias:
-                try:
-                    inv_res = requests.get(f"{base}/api/v1/videos/{v_id}", timeout=5).json()
-                    if formato == 'mp3' and 'adaptiveFormats' in inv_res:
-                        for f in inv_res['adaptiveFormats']:
-                            if 'audio' in f.get('type', ''):
-                                return True, f['url'], 'mp3'
-                    elif 'formatStreams' in inv_res and len(inv_res['formatStreams']) > 0:
-                        return True, inv_res['formatStreams'][-1]['url'], 'mp4'
-                except Exception:
-                    continue
-    except Exception as e:
-        print(f"Error Invidious: {e}")
+        print(f"Error final yt_dlp: {e}")
 
     return False, None, None
 
@@ -182,7 +219,7 @@ def descargar():
             exito, media_url, ext = extraer_youtube(link, formato)
 
         if exito and media_url:
-            # EN LUGAR DE ENVIAR LA URL DIRECTA DE YOUTUBE, LA ENVIAMOS A NUESTRO PROXY LOCAL
+            # Enviamos la URL a través del túnel /stream-media para sobrepasar CORS y bloqueos de origen
             proxy_url = f"/stream-media?target={requests.utils.quote(media_url)}"
             return jsonify({
                 "success": True,
@@ -200,7 +237,6 @@ def descargar():
         return jsonify({"error": "Ocurrió un error interno en el servidor."}), 500
 
 
-# --- RUTA PROXY PARA BASS-PASS DE CORS Y BLOQUEOS DE YOUTUBE ---
 @app.route('/stream-media')
 def stream_media():
     target_url = request.args.get('target')
