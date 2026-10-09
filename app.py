@@ -15,7 +15,7 @@ if not os.path.exists(DOWNLOAD_FOLDER):
 
 app = Flask(__name__)
 
-# --- RUTAS DE NAVEGACIÓN Y MULTI-PLATAFORMA ---
+# --- RUTAS DE NAVEGACIÓN ---
 @app.route('/')
 @app.route('/tiktok')
 @app.route('/youtube')
@@ -41,7 +41,6 @@ def favicon():
 
 
 def resolver_url_final(url):
-    """Sigue las redirecciones automáticas de acortadores (pin.it, vt.tiktok.com, etc.)."""
     try:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
@@ -52,69 +51,41 @@ def resolver_url_final(url):
         return url
 
 
-def extraer_tiktok_api(url, formato, filepath_base):
-    """Soporte directo para vídeos, MP3 e imágenes/carruseles de TikTok usando TikWM."""
+def extraer_tiktok_api(url, formato):
+    """Extrae enlaces de TikTok mediante TikWM."""
     try:
         api_url = f"https://www.tikwm.com/api/?url={url}"
         res = requests.get(api_url, timeout=10).json()
         
         if res.get('code') == 0 and 'data' in res:
             data = res['data']
-            media_url = None
-            extension = 'mp4'
-
-            # 1. Extraer Audio MP3
-            if formato == 'mp3':
-                media_url = data.get('music')
-                extension = 'mp3'
-            # 2. Extraer Vídeo MP4
+            if formato == 'mp3' and data.get('music'):
+                return True, data.get('music'), 'mp3', True
             elif data.get('play'):
-                media_url = data.get('play')
-                extension = 'mp4'
-            # 3. Extraer Imagen/Carrusel (enlace tipo /photo/)
+                return True, data.get('play'), 'mp4', True
             elif 'images' in data and len(data['images']) > 0:
-                media_url = data['images'][0]
-                extension = 'jpg'
-
-            if media_url:
-                final_filename = f"{os.path.basename(filepath_base)}.{extension}"
-                final_filepath = f"{filepath_base}.{extension}"
-                r = requests.get(media_url, timeout=20)
-                if r.status_code == 200:
-                    with open(final_filepath, 'wb') as f:
-                        f.write(r.content)
-                    return True, final_filename, extension
+                return True, data['images'][0], 'jpg', True
     except Exception as e:
         print(f"Error TikWM API: {e}")
-    return False, None, None
+    return False, None, None, False
 
 
 def extraer_pinterest_directo(url):
-    """Extrae MP4 reales o imágenes HD de Pinterest mediante Web Scraping."""
+    """Extrae enlaces directos de Pinterest."""
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
     }
     try:
         res = requests.get(url, headers=headers, allow_redirects=True, timeout=10)
         
-        # CDN directo de Pinterest
         mp4_urls = re.findall(r'https://v1\.pinimg\.com/videos/[^\s"\'<>]+\.mp4', res.text)
-        if not mp4_urls:
-            mp4_urls = re.findall(r'https://[^\s"\'<>]+\.mp4', res.text)
-            
         if mp4_urls:
-            for video_url in mp4_urls:
-                if 'pinterest' in video_url or 'pinimg' in video_url:
-                    return video_url, 'mp4'
+            return mp4_urls[0], 'mp4'
 
         soup = BeautifulSoup(res.text, 'html.parser')
         og_video = soup.find('meta', property='og:video') or soup.find('meta', property='og:video:secure_url')
         if og_video and og_video.get('content'):
             return og_video['content'], 'mp4'
-
-        video_tag = soup.find('video')
-        if video_tag and video_tag.get('src'):
-            return video_tag['src'], 'mp4'
 
         og_image = soup.find('meta', property='og:image')
         if og_image and og_image.get('content'):
@@ -122,60 +93,15 @@ def extraer_pinterest_directo(url):
             img_url_hd = re.sub(r'/(x\d+|originals|\d+x)/', '/originals/', img_url)
             ext = 'png' if '.png' in img_url.lower() else ('webp' if '.webp' in img_url.lower() else 'jpg')
             return img_url_hd, ext
-
     except Exception:
         pass
     return None, None
 
 
-def descargar_youtube_api(url, formato, filepath_base):
-    """Fallback usando la API pública de Cobalt para evitar bloqueos de IP de YouTube en Render."""
-    try:
-        # Petición a instancia pública de cobalt.tools
-        api_url = "https://api.cobalt.tools/api/json"
-        headers = {
-            "Accept": "application/json",
-            "Content-Type": "application/json"
-        }
-        
-        payload = {
-            "url": url,
-            "isAudioOnly": True if formato == 'mp3' else False,
-            "aFormat": "mp3" if formato == 'mp3' else None
-        }
-
-        res = requests.post(api_url, json=payload, headers=headers, timeout=15).json()
-
-        media_url = None
-        if res.get('status') == 'redirect' or res.get('status') == 'stream':
-            media_url = res.get('url')
-
-        if media_url:
-            extension = 'mp3' if formato == 'mp3' else 'mp4'
-            final_filename = f"{os.path.basename(filepath_base)}.{extension}"
-            final_filepath = f"{filepath_base}.{extension}"
-
-            r = requests.get(media_url, timeout=30, stream=True)
-            if r.status_code == 200:
-                with open(final_filepath, 'wb') as f:
-                    for chunk in r.iter_content(chunk_size=8192):
-                        f.write(chunk)
-                return True, final_filename, extension
-    except Exception as e:
-        print(f"Error en API YouTube (Cobalt): {e}")
-
-    # Si la API falla, intenta con yt-dlp nativo
-    return descargar_con_ytdlp_nativo(url, formato, filepath_base)
-
-
-def descargar_con_ytdlp_nativo(url, formato, filepath_sin_ext):
-    """Intento secundario con yt_dlp pasando Cookies / User-Agent rotativos."""
-    extension = 'mp3' if formato == 'mp3' else 'mp4'
-    outtmpl = f"{filepath_sin_ext}.%(ext)s"
-    
+def extraer_youtube(url, formato):
+    """Extrae información de YouTube sin saturar la memoria RAM del servidor."""
     ydl_opts = {
-        'format': 'bestaudio/best' if formato == 'mp3' else 'b[ext=mp4]/best',
-        'outtmpl': outtmpl,
+        'format': 'bestaudio/best' if formato == 'mp3' else 'b[ext=mp4]/best[ext=mp4]/best',
         'quiet': True,
         'no_warnings': True,
         'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
@@ -188,91 +114,70 @@ def descargar_con_ytdlp_nativo(url, formato, filepath_sin_ext):
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-            
-        archivo_final = f"{filepath_sin_ext}.{extension}"
-        if os.path.exists(archivo_final) and os.path.getsize(archivo_final) > 0:
-            return True, os.path.basename(archivo_final), extension
+            info = ydl.extract_info(url, download=False)
+            if 'url' in info:
+                ext = 'mp3' if formato == 'mp3' else info.get('ext', 'mp4')
+                return True, info['url'], ext, True
+            elif 'formats' in info and len(info['formats']) > 0:
+                direct_url = info['formats'][-1]['url']
+                return True, direct_url, 'mp4', True
     except Exception as e:
-        print(f"Error yt_dlp nativo: {e}")
+        print(f"Error yt_dlp: {e}")
 
-    return False, None, None
+    return False, None, None, False
 
 
 @app.route('/descargar', methods=['POST'])
 def descargar():
-    data = request.get_json() or {}
-    entrada = data.get('url', '').strip()
-    formato = data.get('formato', 'mp4')
-    plataforma = data.get('plataforma', '').lower()
+    try:
+        data = request.get_json() or {}
+        entrada = data.get('url', '').strip()
+        formato = data.get('formato', 'mp4')
+        plataforma = data.get('plataforma', '').lower()
 
-    if not entrada:
-        return jsonify({"error": "Por favor, pega un enlace válido."}), 400
+        if not entrada:
+            return jsonify({"error": "Por favor, pega un enlace válido."}), 400
 
-    urls = re.findall(r'https?://[^\s"]+', entrada)
-    link_bruto = urls[0] if urls else entrada
+        urls = re.findall(r'https?://[^\s"]+', entrada)
+        link_bruto = urls[0] if urls else entrada
 
-    link = resolver_url_final(link_bruto)
-    id_unico = str(uuid.uuid4())[:8]
+        link = resolver_url_final(link_bruto)
+        
+        exito = False
+        media_url = None
+        ext = formato
 
-    descarga_exitosa = False
-    filename = ""
-    filepath_base = os.path.join(DOWNLOAD_FOLDER, f"media_{id_unico}")
-    tipo_retorno = formato
+        # 1. TIKTOK
+        if 'tiktok.com' in link or 'vt.tiktok.com' in link_bruto or plataforma == 'tiktok':
+            exito, media_url, ext, es_directo = extraer_tiktok_api(link, formato)
 
-    # --- 1. PROCESAR TIKTOK ---
-    if 'tiktok.com' in link or 'vt.tiktok.com' in link_bruto or plataforma == 'tiktok':
-        exito, archivo_gen, ext_gen = extraer_tiktok_api(link, formato, filepath_base)
-        if exito:
-            descarga_exitosa = True
-            filename = archivo_gen
-            tipo_retorno = ext_gen
+        # 2. PINTEREST
+        if not exito and ('pinterest.com' in link or 'pin.it' in link_bruto or plataforma == 'pinterest'):
+            p_url, p_ext = extraer_pinterest_directo(link)
+            if p_url:
+                exito = True
+                media_url = p_url
+                ext = p_ext
 
-    # --- 2. PROCESAR PINTEREST ---
-    if not descarga_exitosa and ('pinterest.com' in link or 'pin.it' in link_bruto or plataforma == 'pinterest'):
-        media_url, ext = extraer_pinterest_directo(link)
-        if media_url:
-            filename = f"media_{id_unico}.{ext}"
-            filepath = os.path.join(DOWNLOAD_FOLDER, filename)
-            try:
-                headers = {'User-Agent': 'Mozilla/5.0'}
-                req = requests.get(media_url, headers=headers, timeout=20)
-                if req.status_code == 200:
-                    with open(filepath, 'wb') as f:
-                        f.write(req.content)
-                    descarga_exitosa = True
-                    tipo_retorno = ext
-            except Exception:
-                descarga_exitosa = False
+        # 3. YOUTUBE
+        if not exito:
+            exito, media_url, ext, es_directo = extraer_youtube(link, formato)
 
-    # --- 3. PROCESAR YOUTUBE / EXTRACTOR GENERAL (YT-DLP) ---
-    if not descarga_exitosa:
-        exito, archivo_gen, ext_gen = descargar_con_ytdlp(link, formato, filepath_base)
-        if exito:
-            descarga_exitosa = True
-            filename = archivo_gen
-            tipo_retorno = ext_gen
+        if exito and media_url:
+            return jsonify({
+                "success": True,
+                "download_url": media_url,
+                "filename": f"media.{ext}",
+                "tipo": ext
+            })
+        else:
+            return jsonify({
+                "error": "No se pudo obtener el archivo de este enlace. Intenta con otro video público."
+            }), 400
 
-    # --- RESPUESTA ---
-    if descarga_exitosa and filename:
-        return jsonify({
-            "success": True,
-            "download_url": f"/obtener-archivo/{filename}",
-            "filename": filename,
-            "tipo": tipo_retorno
-        })
-    else:
-        return jsonify({
-            "error": "No se pudo extraer el archivo. Verifica que el enlace sea público."
-        }), 500
-
-
-@app.route('/obtener-archivo/<filename>')
-def obtener_archivo(filename):
-    filepath = os.path.join(DOWNLOAD_FOLDER, filename)
-    if os.path.exists(filepath):
-        return send_file(filepath, as_attachment=True)
-    return jsonify({"error": "El archivo solicitado no existe."}), 404
+    except Exception as err:
+        print(f"Error interno del servidor: {err}")
+        return jsonify({"error": "Ocurrió un error interno en el servidor."}), 500
 
 
 @app.route('/sw.js')
@@ -284,7 +189,4 @@ def serve_sw():
 
 
 if __name__ == '__main__':
-    print("-------------------------------------------------------")
-    print("🚀 Servidor listo en: http://127.0.0.1:5000/")
-    print("-------------------------------------------------------")
     app.run(debug=True, port=5000)
