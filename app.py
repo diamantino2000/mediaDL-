@@ -148,7 +148,7 @@ def descargar():
         else:
             return jsonify({
                 "success": False,
-                "error": "No se pudo extraer el archivo. Verifica que el enlace sea público e inténtalo de nuevo."
+                "error": "No se pudo extraer el archivo. Verifica que el enlace seja público e inténtalo de nuevo."
             }), 200
 
     except Exception as err:
@@ -164,9 +164,11 @@ def serve_sw():
         return send_file(sw_path, mimetype='application/javascript')
     return "", 204
 
+
 @app.route('/robots.txt')
 def robots_txt():
     return "User-agent: *\nAllow: /\n", 200, {'Content-Type': 'text/plain'}
+
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
