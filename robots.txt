@@ -1,2 +1,5 @@
 User-agent: *
 Allow: /
+
+# Opcional: Si quieres bloquear que indexen la ruta interna de procesamiento
+Disallow: /descargar
