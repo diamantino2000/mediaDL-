@@ -164,6 +164,9 @@ def serve_sw():
         return send_file(sw_path, mimetype='application/javascript')
     return "", 204
 
+@app.route('/robots.txt')
+def robots_txt():
+    return "User-agent: *\nAllow: /\n", 200, {'Content-Type': 'text/plain'}
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
